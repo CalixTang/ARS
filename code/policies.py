@@ -8,13 +8,16 @@ Benjamin Recht
 
 import numpy as np
 from filter import get_filter
+from mjrl.KODex_utils.Observables import *
+from mjrl.KODex_utils.Controller import *
 
 class Policy(object):
 
     def __init__(self, policy_params):
 
-        self.ob_dim = policy_params['ob_dim']
-        self.ac_dim = policy_params['ac_dim']
+        #modify to allow default values
+        self.ob_dim = policy_params.get('ob_dim', -1)
+        self.ac_dim = policy_params.get('ac_dim', -1)
         self.weights = np.empty(0)
 
         # a filter for updating statistics of the observations and normalizing inputs to the policies
@@ -56,3 +59,83 @@ class LinearPolicy(Policy):
         aux = np.asarray([self.weights, mu, std])
         return aux
         
+class KoopmanPolicy(Policy):
+    """
+    General policy for koopman operator-based policies.
+    Key distinction is that we create use new dimensions
+    """
+
+    def __init__(self, policy_params):
+        Policy.__init__(self, policy_params)
+
+        #extra parameters - required for having some sense of lifted dimensions
+        self.robot_dim = policy_params['robot_dim']
+        self.obj_dim = policy_params['obj_dim']
+
+        self.koopman_obser = DraftedObservable(self.robot_dim, self.obj_dim)
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+
+        #weights will be the koopman matrix - this can be pretty big
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+
+    #koopman policies will need to perform updates in some custom way
+    def act(self, ob):
+        return NotImplementedError
+    
+    #perform the koopman update z_{t+1} = K @ z_t
+    def update_lifted_state(self, z):
+        return np.dot(self.weights, z)
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+
+class RelocatePolicy(KoopmanPolicy):
+    """
+    Linear policy class that computes action as torque output given from <w, ob>. 
+    """
+
+    def __init__(self, policy_params):
+        KoopmanPolicy.__init__(self, policy_params)
+
+        #we use a pid controller
+        self.pid_controller = policy_params['PID_controller']
+
+
+    #for our case, observation is a dict of the full env state 
+    def act(self, ob):
+        #extract relevant state information - [hand pos, obj pos, obj ori, obj vel]
+        x = np.concatenate((ob['qpos'][ : 30], ob['obj_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
+        
+        #normalize if V2 - TODO figure out if we need to normalize, i've turned it off by default for now
+        x = self.observation_filter(x, update=self.update_filter)
+
+        #extract lifted state from state
+        hand_state, obj_state = x[ : self.robot_dim], x[self.robot_dim : ]
+        z = self.koopman_obser.z(hand_state, obj_state)
+
+        #koopman update
+        next_z = self.update_lifted_state(z)
+
+        #torque action from lifted state
+        action = self.get_act_from_lifted_state(next_z, ob)
+        
+        return action
+    
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #gym_env.py from KODex/CIMER mujoco
+        next_hand_state, next_obj_state = next_z[:self.robot_dim], next_z[2 * self.robot_dim: 2 * self.robot_dim + self.obj_dim]  # retrieved robot & object states
+        self.pid_controller.set_goal(next_hand_state)
+
+        #TODO: figure out if pid control is the right way to go about this
+        torque_action = self.pid_controller(env_state['qpos'][ : self.robot_dim], env_state['qvel'][ : self.robot_dim])
+        return torque_action
+
+        
+    def get_weights_plus_stats(self):
+        
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    

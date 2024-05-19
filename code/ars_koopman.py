@@ -9,7 +9,8 @@ import parser
 import time
 import os
 import numpy as np
-import gym
+# import gym
+from mjrl.utils.gym_env import GymEnv
 import logz
 import ray
 import utils
@@ -17,22 +18,32 @@ import optimizers
 from policies import *
 import socket
 from shared_noise import *
+from mjrl.KODex_utils.Observables import *
+from tqdm import tqdm
+import mjrl.envs
+import mj_envs   # read the env files (task files)
+import time 
+
 
 @ray.remote
 class Worker(object):
+    import mj_envs
     """ 
     Object class for parallel rollout generation.
     """
 
     def __init__(self, env_seed,
-                 env_name='',
+                 task_id='',
                  policy_params = None,
                  deltas=None,
-                 rollout_length=1000,
+                 rollout_length=500,
                  delta_std=0.02):
 
         # initialize OpenAI environment for each worker
-        self.env = gym.make(env_name)
+        if task_id == 'relocate':
+            self.env = GymEnv('relocate-v0', "PID", policy_params['object'])
+        else:
+            self.env = GymEnv(task_id, "PID")
         self.env.seed(env_seed)
 
         # each worker gets access to the shared noise table
@@ -49,13 +60,13 @@ class Worker(object):
             
         self.delta_std = delta_std
         self.rollout_length = rollout_length
-
+        print("Worker initialized")
         
     def get_weights_plus_stats(self):
         """ 
         Get current policy weights and current statistics of past states.
         """
-        assert self.policy_params['type'] == 'linear'
+        # assert self.policy_params['type'] == 'linear'
         return self.policy.get_weights_plus_stats()
     
 
@@ -71,10 +82,22 @@ class Worker(object):
         total_reward = 0.
         steps = 0
 
-        ob = self.env.reset()
+        _ = self.env.reset()
         for i in range(rollout_length):
+
+            #observe full state b/c we need it
+            ob = self.env.get_env_state()
+
+            #generate torque action
             action = self.policy.act(ob)
-            ob, reward, done, _ = self.env.step(action)
+            
+            reward = 0
+
+            #TODO: verify if we need to be using koopman op on the next_o or the actually observed env state
+            #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
+            next_o, reward, done, goal_achieved = self.env.step(action)  
+            
+            # ob, reward, done, _ = self.env.step(action)
             steps += 1
             total_reward += (reward - shift)
             if done:
@@ -101,7 +124,7 @@ class Worker(object):
 
                 # for evaluation we do not shift the rewards (shift = 0) and we use the
                 # default rollout length (1000 for the MuJoCo locomotion tasks)
-                reward, r_steps = self.rollout(shift = 0., rollout_length = self.env.spec.timestep_limit)
+                reward, r_steps = self.rollout(shift = 0., rollout_length = self.rollout_length)
                 rollout_rewards.append(reward)
                 
             else:
@@ -146,23 +169,31 @@ class ARSLearner(object):
     Object class implementing the ARS algorithm.
     """
 
-    def __init__(self, env_name='HalfCheetah-v1',
+    def __init__(self, task_id='relocate',
                  policy_params=None,
                  num_workers=32, 
                  num_deltas=320, 
                  deltas_used=320,
                  delta_std=0.02, 
                  logdir=None, 
-                 rollout_length=1000,
+                 rollout_length=100,
                  step_size=0.01,
                  shift='constant zero',
                  params=None,
                  seed=123):
-
+	
+        print("Initialize ARSLearner object")
         logz.configure_output_dir(logdir)
         logz.save_params(params)
+
+        env = None
         
-        env = gym.make(env_name)
+        if task_id == 'relocate':
+            if not policy_params['object'] or policy_params['object'] == 'ball':
+                policy_params['object'] = ''
+            env = GymEnv('relocate-v0', "PID", policy_params['object'])
+        else:
+            env = GymEnv(task_id, "PID")
         
         self.timesteps = 0
         self.action_size = env.action_space.shape[0]
@@ -189,16 +220,19 @@ class ARSLearner(object):
         print('Initializing workers.') 
         self.num_workers = num_workers
         self.workers = [Worker.remote(seed + 7 * i,
-                                      env_name=env_name,
+                                      task_id = task_id,
                                       policy_params=policy_params,
                                       deltas=deltas_id,
                                       rollout_length=rollout_length,
                                       delta_std=delta_std) for i in range(num_workers)]
-
+        print("Initialized workers.")
 
         # initialize policy 
         if policy_params['type'] == 'linear':
             self.policy = LinearPolicy(policy_params)
+            self.w_policy = self.policy.get_weights()
+        elif policy_params['type'] == 'relocate':
+            self.policy = RelocatePolicy(policy_params)
             self.w_policy = self.policy.get_weights()
         else:
             raise NotImplementedError
@@ -255,6 +289,7 @@ class ARSLearner(object):
         deltas_idx = np.array(deltas_idx)
         rollout_rewards = np.array(rollout_rewards, dtype = np.float64)
         
+        print('Mean reward of collected rollouts:', rollout_rewards.mean())
         print('Maximum reward of collected rollouts:', rollout_rewards.max())
         t2 = time.time()
 
@@ -284,7 +319,7 @@ class ARSLearner(object):
         g_hat /= deltas_idx.size
         t2 = time.time()
         print('time to aggregate rollouts', t2 - t1)
-        return g_hat
+        return g_hat, rollout_rewards
         
 
     def train_step(self):
@@ -292,30 +327,45 @@ class ARSLearner(object):
         Perform one update step of the policy weights.
         """
         
-        g_hat = self.aggregate_rollouts()                    
+        g_hat, rewards = self.aggregate_rollouts()                  
         print("Euclidean norm of update step:", np.linalg.norm(g_hat))
         self.w_policy -= self.optimizer._compute_step(g_hat).reshape(self.w_policy.shape)
-        return
+        return rewards
 
-    def train(self, num_iter):
+    def train(self, num_iter, num_eval_rollouts = 500):
+        print("Starting training")
+        training_rewards = np.zeros((num_iter, self.deltas_used * 2))
+        eval_rewards = np.zeros((num_iter // 10, num_eval_rollouts))
+
+        best_eval_policy_weights = self.w_policy #initial weights
+        best_eval_policy_reward = float('-inf')
 
         start = time.time()
-        for i in range(num_iter):
-            
+        for i in tqdm(range(num_iter)):
             t1 = time.time()
-            self.train_step()
+            step_rewards = self.train_step()
             t2 = time.time()
-            print('total time of one step', t2 - t1)           
-            print('iter ', i,' done')
+
+            #mean_reward = step_rewards.mean()
+            training_rewards[i, :] = step_rewards.flatten()
+
+            # print('total time of one step', t2 - t1)           
+            # print('iter ', i,' done')
 
             # record statistics every 10 iterations
             if ((i + 1) % 10 == 0):
-                
-                rewards = self.aggregate_rollouts(num_rollouts = 100, evaluate = True)
+                rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
+                print(f'eval rewards shape: {rewards.shape}')
                 w = ray.get(self.workers[0].get_weights_plus_stats.remote())
-                np.savez(self.logdir + "/lin_policy_plus", w)
+                np.save(self.logdir + "/koopman_policy.npy", w)
+
+                eval_rewards[i // 10, :] = rewards.flatten()
+                if rewards.mean() > best_eval_policy_reward:
+                    best_eval_policy_reward = rewards.mean()
+                    best_eval_policy_weights = w
                 
-                print(sorted(self.params.items()))
+                #eval logging
+                # print(sorted(self.params.items()))
                 logz.log_tabular("Time", time.time() - start)
                 logz.log_tabular("Iteration", i + 1)
                 logz.log_tabular("AverageReward", np.mean(rewards))
@@ -344,7 +394,13 @@ class ARSLearner(object):
             ray.get(increment_filters_ids)            
             t2 = time.time()
             print('Time to sync statistics:', t2 - t1)
+
+        #save best weights
+        print(f'Best eval policy mean reward: {best_eval_policy_reward}')
+        np.save(os.path.join(self.logdir, 'best_koopman_policy_weights.npy'), best_eval_policy_weights)
                         
+        np.save(os.path.join(self.logdir, 'training_rewards.npy'), training_rewards)
+        np.save(os.path.join(self.logdir, 'eval_rewards.npy'), eval_rewards)
         return 
 
 def run_ars(params):
@@ -353,21 +409,31 @@ def run_ars(params):
 
     if not(os.path.exists(dir_path)):
         os.makedirs(dir_path)
-    logdir = dir_path
+    logdir = os.path.join(dir_path, str(time.time_ns()))
     if not(os.path.exists(logdir)):
         os.makedirs(logdir)
 
-    env = gym.make(params['env_name'])
-    ob_dim = env.observation_space.shape[0]
-    ac_dim = env.action_space.shape[0]
+    #i think we don't care about these for our case?
+    # ob_dim = env.observation_space.shape[0]
+    # ac_dim = env.action_space.shape[0]
+    # print(ob_dim, ac_dim)
+    ob_dim, ac_dim = 0, 0
+
+    PID_P = 10
+    PID_D = 0.005  
+    Simple_PID = PID(PID_P, 0.0, PID_D)
 
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
-    policy_params={'type':'linear',
+    policy_params={'type':params['policy_type'],
                    'ob_filter':params['filter'],
                    'ob_dim':ob_dim,
-                   'ac_dim':ac_dim}
+                   'ac_dim':ac_dim, 
+                   'robot_dim': params['robot_dim'],
+                   'obj_dim': params['obj_dim'],
+                   'object': params['object'],
+                   'PID_controller': Simple_PID}
 
-    ARS = ARSLearner(env_name=params['env_name'],
+    ARS = ARSLearner(task_id=params['task_id'],
                      policy_params=policy_params,
                      num_workers=params['n_workers'], 
                      num_deltas=params['n_directions'],
@@ -382,36 +448,50 @@ def run_ars(params):
         
     ARS.train(params['n_iter'])
        
-    return 
+    return ARS.policy
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, default='HalfCheetah-v1')
-    parser.add_argument('--n_iter', '-n', type=int, default=1000)
-    parser.add_argument('--n_directions', '-nd', type=int, default=8)
-    parser.add_argument('--deltas_used', '-du', type=int, default=8)
-    parser.add_argument('--step_size', '-s', type=float, default=0.02)
+    parser.add_argument('--task_id', type=str, default='relocate')
+    parser.add_argument('--n_iter', '-n', type=int, default=1000) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=16) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=16) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.1)#0.02
     parser.add_argument('--delta_std', '-std', type=float, default=.03)
-    parser.add_argument('--n_workers', '-e', type=int, default=18)
-    parser.add_argument('--rollout_length', '-r', type=int, default=1000)
+    parser.add_argument('--n_workers', '-e', type=int, default=4)
+    parser.add_argument('--rollout_length', '-r', type=int, default=500) #100 timesteps * 5 b/c of the PID subsampling
 
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
-    parser.add_argument('--shift', type=float, default=0)
+    parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='linear')
+    parser.add_argument('--policy_type', type=str, default='relocate')
     parser.add_argument('--dir_path', type=str, default='data')
 
-    # for ARS V1 use filter = 'NoFilter'
-    parser.add_argument('--filter', type=str, default='MeanStdFilter')
+    # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
+    parser.add_argument('--filter', type=str, default='NoFilter') 
 
-    local_ip = socket.gethostbyname(socket.gethostname())
-    ray.init(redis_address= local_ip + ':6379')
+    #for relocate task, allow different object
+    parser.add_argument('--object', type=str, default = 'ball')
+    parser.add_argument('--robot_dim', type=int, default = 30)
+    parser.add_argument('--obj_dim', type=int, default = 12)
+    parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
+    if ray.is_initialized():
+        ray.shutdown()
     
+    print("ray init", flush = True)
+    local_ip = socket.gethostbyname(socket.gethostname())
+    ray.init(address = local_ip + ':6379')
+    
+    print("args parse", flush = True)
     args = parser.parse_args()
     params = vars(args)
-    run_ars(params)
+    
+    print("run ars", flush = True)
+    trained_policy = run_ars(params)
+    weights = trained_policy.weights
+    np.save(os.path.join(args.dir_path, 'trained_koopman_mat.npy'), weights)
 
