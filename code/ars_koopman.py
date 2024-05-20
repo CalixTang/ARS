@@ -398,7 +398,8 @@ class ARSLearner(object):
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
         np.save(os.path.join(self.logdir, 'best_koopman_policy_weights.npy'), best_eval_policy_weights)
-                        
+        np.save(os.path.join(self.logdir, 'latest_koopman_policy_weights.npy'), self.w_policy)        
+ 
         np.save(os.path.join(self.logdir, 'training_rewards.npy'), training_rewards)
         np.save(os.path.join(self.logdir, 'eval_rewards.npy'), eval_rewards)
         return 
@@ -433,7 +434,8 @@ def run_ars(params):
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
                    'PID_controller': Simple_PID}
-    print(params, policy_params, flush = True)
+    print(f"ARS parameters: {params}")
+    print(f"Policy parameters: {policy_params}", flush = True)
     ARS = ARSLearner(task_id=params['task_id'],
                      policy_params=policy_params,
                      num_workers=params['n_workers'], 
@@ -448,9 +450,8 @@ def run_ars(params):
                      seed = params['seed'])
         
     ARS.train(params['n_iter'])
-       
-    return ARS.policy
-
+   
+    return
 
 if __name__ == '__main__':
     import argparse
@@ -459,8 +460,8 @@ if __name__ == '__main__':
     parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=16) #directions explored - results in 2*d actual policies
     parser.add_argument('--deltas_used', '-du', type=int, default=8) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.05) #0.02, step_size = alpha in the paper
-    parser.add_argument('--delta_std', '-std', type=float, default=3e-3) #.03, delta_std = v in the paper
+    parser.add_argument('--step_size', '-s', type=float, default=.05)#0.02, alpha in the paper
+    parser.add_argument('--delta_std', '-std', type=float, default=0.02)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default=1)
     parser.add_argument('--rollout_length', '-r', type=int, default=500) #100 timesteps * 5 b/c of the PID subsampling
 
@@ -491,5 +492,4 @@ if __name__ == '__main__':
     
     trained_policy = run_ars(params)
     weights = trained_policy.weights
-    np.save(os.path.join(args.dir_path, 'trained_koopman_mat.npy'), weights)
 
