@@ -332,7 +332,7 @@ class ARSLearner(object):
         self.w_policy -= self.optimizer._compute_step(g_hat).reshape(self.w_policy.shape)
         return rewards
 
-    def train(self, num_iter, num_eval_rollouts = 500):
+    def train(self, num_iter, num_eval_rollouts = 100):
         print("Starting training")
         training_rewards = np.zeros((num_iter, self.deltas_used * 2))
         eval_rewards = np.zeros((num_iter // 10, num_eval_rollouts))
@@ -398,7 +398,8 @@ class ARSLearner(object):
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
         np.save(os.path.join(self.logdir, 'best_koopman_policy_weights.npy'), best_eval_policy_weights)
-                        
+        np.save(os.path.join(self.logdir, 'latest_koopman_policy_weights.npy'), self.w_policy)        
+ 
         np.save(os.path.join(self.logdir, 'training_rewards.npy'), training_rewards)
         np.save(os.path.join(self.logdir, 'eval_rewards.npy'), eval_rewards)
         return 
@@ -432,7 +433,8 @@ def run_ars(params):
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
                    'PID_controller': Simple_PID}
-
+    print(f"ARS parameters: {params}")
+    print(f"Policy parameters: {policy_params}", flush = True)
     ARS = ARSLearner(task_id=params['task_id'],
                      policy_params=policy_params,
                      num_workers=params['n_workers'], 
@@ -447,20 +449,19 @@ def run_ars(params):
                      seed = params['seed'])
         
     ARS.train(params['n_iter'])
-       
-    return ARS.policy
-
+   
+    return
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_id', type=str, default='relocate')
-    parser.add_argument('--n_iter', '-n', type=int, default=1000) #training steps
+    parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=16) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=16) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.1)#0.02
-    parser.add_argument('--delta_std', '-std', type=float, default=.03)
-    parser.add_argument('--n_workers', '-e', type=int, default=4)
+    parser.add_argument('--deltas_used', '-du', type=int, default=8) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=.05)#0.02, alpha in the paper
+    parser.add_argument('--delta_std', '-std', type=float, default=0.02)# 0.03, v in the paper
+    parser.add_argument('--n_workers', '-e', type=int, default=1)
     parser.add_argument('--rollout_length', '-r', type=int, default=500) #100 timesteps * 5 b/c of the PID subsampling
 
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
@@ -472,7 +473,7 @@ if __name__ == '__main__':
     parser.add_argument('--dir_path', type=str, default='data')
 
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
-    parser.add_argument('--filter', type=str, default='NoFilter') 
+    parser.add_argument('--filter', type=str, default='MeanStdFilter') 
 
     #for relocate task, allow different object
     parser.add_argument('--object', type=str, default = 'ball')
@@ -482,16 +483,12 @@ if __name__ == '__main__':
     if ray.is_initialized():
         ray.shutdown()
     
-    print("ray init", flush = True)
     local_ip = socket.gethostbyname(socket.gethostname())
     ray.init(address = local_ip + ':6379')
     
-    print("args parse", flush = True)
     args = parser.parse_args()
     params = vars(args)
     
-    print("run ars", flush = True)
     trained_policy = run_ars(params)
     weights = trained_policy.weights
-    np.save(os.path.join(args.dir_path, 'trained_koopman_mat.npy'), weights)
 
