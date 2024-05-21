@@ -26,6 +26,13 @@ class Filter(object):
     def sync(self, other):
         """Copies all state from other filter to self."""
         raise NotImplementedError
+    
+    #return this filter as a dict
+    def as_dict(self):
+        pass
+
+    def from_dict(self, d):
+        pass
 
 
 class NoFilter(Filter):
@@ -64,6 +71,14 @@ class NoFilter(Filter):
     @property
     def std(self):
         return 1
+    
+    def as_dict(self):
+        return {'type': 'NoFilter'}
+    
+    def from_dict(self, d):
+        filter = NoFilter()
+        return filter
+
 
 
 
@@ -229,7 +244,18 @@ class MeanStdFilter(Filter):
     def __repr__(self):
         return 'MeanStdFilter({}, {}, {}, {}, {}, {})'.format(
             self.shape, self.demean,
-            self.rs, self.buffer)
+            self.rs, self.buffer, self.mean, self.std)
+    
+    def as_dict(self):
+        return {'type': 'MeanStdFilter', 'shape': self.shape, 'demean': self.demean, 'destd': self.destd, 'mean': self.mean, 'std': self.std}
+
+    def from_dict(self, d):
+        filter = MeanStdFilter(d['shape'], demean = d['demean'], destd = d['destd'])
+        if d['demean']:
+            filter.mean = d['mean']
+        if d['destd']:
+            filter.std = d['std']
+        return filter
 
     
 def get_filter(filter_config, shape = None):

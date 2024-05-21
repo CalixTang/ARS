@@ -11,6 +11,7 @@ import os
 import numpy as np
 # import gym
 from mjrl.utils.gym_env import GymEnv
+from mjrl.KODex_utils.Controller import *
 import logz
 import ray
 import utils
@@ -23,6 +24,7 @@ from tqdm import tqdm
 import mjrl.envs
 import mj_envs   # read the env files (task files)
 import time 
+import graph_results
 
 
 @ray.remote
@@ -208,6 +210,7 @@ class ARSLearner(object):
         self.params = params
         self.max_past_avg_reward = float('-inf')
         self.num_episodes_used = float('inf')
+        self.filter_type = policy_params['ob_filter']
 
         
         # create shared table for storing noise
@@ -339,6 +342,7 @@ class ARSLearner(object):
 
         best_eval_policy_weights = self.w_policy #initial weights
         best_eval_policy_reward = float('-inf')
+        best_filter_mean, best_filter_std = 0, 1
 
         start = time.time()
         for i in tqdm(range(num_iter)):
@@ -357,12 +361,14 @@ class ARSLearner(object):
                 print(f"It {i}", flush = True)
                 rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
                 w = ray.get(self.workers[0].get_weights_plus_stats.remote())
-                np.save(self.logdir + "/koopman_policy.npy", w)
+                # np.save(self.logdir + "/koopman_policy.npy", w)
 
                 eval_rewards[i // 10, :] = rewards.flatten()
                 if rewards.mean() > best_eval_policy_reward:
                     best_eval_policy_reward = rewards.mean()
-                    best_eval_policy_weights = w
+                    best_eval_policy_weights = w[0]
+                    if self.filter_type == 'MeanStdFilter':
+                        best_filter_mean, best_filter_std = w[1], w[2]
                 
                 #eval logging
                 # print(sorted(self.params.items()))
@@ -402,7 +408,19 @@ class ARSLearner(object):
  
         np.save(os.path.join(self.logdir, 'training_rewards.npy'), training_rewards)
         np.save(os.path.join(self.logdir, 'eval_rewards.npy'), eval_rewards)
-        return 
+
+
+        if self.filter_type == 'MeanStdFilter':
+            ob_filter_obj = self.policy.get_observation_filter().as_dict()
+            np.save(os.path.join(self.logdir, 'obs_filter.npy'), ob_filter_obj)
+
+            best_ob_filter_obj = self.policy.copy()
+            best_ob_filter_obj.mean, best_ob_filter_obj.std = best_filter_mean, best_filter_std
+            np.save(os.path.join(self.logdir, 'best_filter.npy'), ob_filter_obj)
+
+
+
+        return training_rewards, eval_rewards
 
 def run_ars(params):
 
@@ -411,9 +429,10 @@ def run_ars(params):
     if not(os.path.exists(dir_path)):
         os.makedirs(dir_path)
     logdir = os.path.join(dir_path, str(time.time_ns()))
-    if not(os.path.exists(logdir)):
-        print(f"Making dir {logdir}")
-        os.makedirs(logdir)
+    while os.path.exists(logdir):
+        logdir = os.path.join(dir_path, str(time.time_ns()))
+    print(f"Logging to directory {logdir}")
+    os.makedirs(logdir)
 
     #i think we don't care about these for our case?
     # ob_dim = env.observation_space.shape[0]
@@ -449,8 +468,9 @@ def run_ars(params):
                      params=params,
                      seed = params['seed'])
         
-    ARS.train(params['n_iter'])
-   
+    train_rewards, eval_rewards = ARS.train(params['n_iter'])
+    graph_results.graph_training_and_eval_rewards(train_rewards, eval_rewards, logdir, False)
+
     return
 
 if __name__ == '__main__':
@@ -458,8 +478,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_id', type=str, default='relocate')
     parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=16) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=8) #directions kept for gradient update
+    parser.add_argument('--n_directions', '-nd', type=int, default=20) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=10) #directions kept for gradient update
     parser.add_argument('--step_size', '-s', type=float, default=.05)#0.02, alpha in the paper
     parser.add_argument('--delta_std', '-std', type=float, default=0.02)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default=1)
@@ -469,7 +489,7 @@ if __name__ == '__main__':
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
-    parser.add_argument('--seed', type=int, default=420)
+    parser.add_argument('--seed', type=int, default=123)
     parser.add_argument('--policy_type', type=str, default='relocate')
     parser.add_argument('--dir_path', type=str, default='data')
 
@@ -481,15 +501,14 @@ if __name__ == '__main__':
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
     #parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
-    if ray.is_initialized():
-        ray.shutdown()
     
-    local_ip = socket.gethostbyname(socket.gethostname())
-    ray.init(address = local_ip + ':6379')
+    
+    # local_ip = socket.gethostbyname(socket.gethostname())
+
+    ray.init(num_cpus=10)
     
     args = parser.parse_args()
     params = vars(args)
     
-    trained_policy = run_ars(params)
-    weights = trained_policy.weights
+    run_ars(params)
 
