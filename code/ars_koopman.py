@@ -419,7 +419,7 @@ def run_ars(params):
     # ob_dim = env.observation_space.shape[0]
     # ac_dim = env.action_space.shape[0]
     # print(ob_dim, ac_dim)
-    ob_dim, ac_dim = 0, 0
+    ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], 0
 
     PID_P = 10
     PID_D = 0.005  
@@ -469,12 +469,12 @@ if __name__ == '__main__':
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
-    parser.add_argument('--seed', type=int, default=237)
+    parser.add_argument('--seed', type=int, default=420)
     parser.add_argument('--policy_type', type=str, default='relocate')
     parser.add_argument('--dir_path', type=str, default='data')
 
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
-    parser.add_argument('--filter', type=str, default='MeanStdFilter') 
+    parser.add_argument('--filter', type=str, default='NoFilter') 
 
     #for relocate task, allow different object
     parser.add_argument('--object', type=str, default = 'ball')
