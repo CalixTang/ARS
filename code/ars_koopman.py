@@ -57,6 +57,8 @@ class Worker(object):
             self.policy = LinearPolicy(policy_params)
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
+        elif policy_params['type'] == 'partialrelocate':
+            self.policy = PartialRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
             
@@ -237,6 +239,9 @@ class ARSLearner(object):
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
             self.w_policy = self.policy.get_weights()
+        elif policy_params['type'] == 'partialrelocate':
+            self.policy = PartialRelocatePolicy(policy_params)
+            self.w_policy = self.policy.get_weights()
         else:
             raise NotImplementedError
             
@@ -414,7 +419,7 @@ class ARSLearner(object):
             ob_filter_obj = self.policy.get_observation_filter().as_dict()
             np.save(os.path.join(self.logdir, 'obs_filter.npy'), ob_filter_obj)
 
-            best_ob_filter_obj = self.policy.copy()
+            best_ob_filter_obj = self.policy.get_observation_filter.copy()
             best_ob_filter_obj.mean, best_ob_filter_obj.std = best_filter_mean, best_filter_std
             np.save(os.path.join(self.logdir, 'best_filter.npy'), ob_filter_obj)
 
@@ -452,6 +457,7 @@ def run_ars(params):
                    'robot_dim': params['robot_dim'],
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
+                #    'num_modes': params['num_modes'], # only for PartialRelocate policy
                    'PID_controller': Simple_PID}
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
@@ -470,26 +476,28 @@ def run_ars(params):
         
     train_rewards, eval_rewards = ARS.train(params['n_iter'])
     graph_results.graph_training_and_eval_rewards(train_rewards, eval_rewards, logdir, False)
+    print(f"All files written to {logdir}", flush = True)
 
     return
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--task_id', type=str, default='relocate')
     parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=20) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=10) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=.05)#0.02, alpha in the paper
-    parser.add_argument('--delta_std', '-std', type=float, default=0.02)# 0.03, v in the paper
-    parser.add_argument('--n_workers', '-e', type=int, default=1)
-    parser.add_argument('--rollout_length', '-r', type=int, default=500) #100 timesteps * 5 b/c of the PID subsampling
+    parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=32) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.05)#0.02, alpha in the paper
+    parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
+    parser.add_argument('--n_workers', '-e', type=int, default = 8)
+    parser.add_argument('--rollout_length', '-r', type=int, default=200) #100 timesteps * 5 b/c of the PID subsampling
 
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
-    parser.add_argument('--seed', type=int, default=123)
+    parser.add_argument('--seed', type=int, default=237)
     parser.add_argument('--policy_type', type=str, default='relocate')
     parser.add_argument('--dir_path', type=str, default='data')
 
@@ -500,15 +508,22 @@ if __name__ == '__main__':
     parser.add_argument('--object', type=str, default = 'ball')
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
+    parser.add_argument('--num_modes', type=int, default = 759) #PartialRelocate only, for relocate task in [1, 759]
     #parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
-    
+    parser.add_argument('--params_path', type = str)
     
     # local_ip = socket.gethostbyname(socket.gethostname())
 
-    ray.init(num_cpus=10)
+    
     
     args = parser.parse_args()
     params = vars(args)
+
+    ray.init(num_cpus=args.n_workers)
+
+    if args.params_path is not None:
+        import json
+        params = json.load(open(args.params_path, 'r'))
+        print(params)
     
     run_ars(params)
-
