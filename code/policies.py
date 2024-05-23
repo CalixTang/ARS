@@ -142,8 +142,10 @@ class RelocatePolicy(KoopmanPolicy):
     
 
 #TODO: figure out potential design problem: we might expect good learned eigenvalues to take on a different range than the values of eigenvectors, but ARS will treat them the same in exploration.
+#TODO: we are using A = W L W^+ as a reconstruction tactic, but I haven't proved that this is mathematically sound when W isn't nxn 
+#This is also a very messy way of "eigendecomposition" - we could try to force eigvecs to be orthonormal but that sounds like a lot of work
 #For now, eigenvalues will get a default value of 1 to make thing easier.
-class PartialRelocatePolicy(KoopmanPolicy):
+class EigenRelocatePolicy(KoopmanPolicy):
     """
     Policy parameters are a set of dynamic modes (eigenvecs/eigvals of K). 
     """
@@ -212,4 +214,7 @@ class PartialRelocatePolicy(KoopmanPolicy):
         mu, std = self.observation_filter.get_stats()
         aux = np.asarray([self.weights, mu, std])
         return aux
-    
+
+
+class SVDRelocatePolicy(KoopmanPolicy):
+    pass

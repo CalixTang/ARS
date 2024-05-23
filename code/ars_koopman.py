@@ -57,8 +57,8 @@ class Worker(object):
             self.policy = LinearPolicy(policy_params)
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
-        elif policy_params['type'] == 'partialrelocate':
-            self.policy = PartialRelocatePolicy(policy_params)
+        elif policy_params['type'] == 'eigenrelocate':
+            self.policy = EigenRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
             
@@ -239,8 +239,8 @@ class ARSLearner(object):
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
             self.w_policy = self.policy.get_weights()
-        elif policy_params['type'] == 'partialrelocate':
-            self.policy = PartialRelocatePolicy(policy_params)
+        elif policy_params['type'] == 'eigenrelocate':
+            self.policy = EigenRelocatePolicy(policy_params)
             self.w_policy = self.policy.get_weights()
         else:
             raise NotImplementedError
@@ -314,6 +314,7 @@ class ARSLearner(object):
         idx = np.arange(max_rewards.size)[max_rewards >= np.percentile(max_rewards, 100*(1 - (self.deltas_used / self.num_deltas)))]
         deltas_idx = deltas_idx[idx]
         rollout_rewards = rollout_rewards[idx,:]
+        raw_rollout_rewards = rollout_rewards[:]
         
         # normalize rewards by their standard deviation
         rollout_rewards /= np.std(rollout_rewards)
@@ -327,7 +328,7 @@ class ARSLearner(object):
         g_hat /= deltas_idx.size
         t2 = time.time()
         print('time to aggregate rollouts', t2 - t1)
-        return g_hat, rollout_rewards
+        return g_hat, raw_rollout_rewards
         
 
     def train_step(self):
@@ -457,7 +458,7 @@ def run_ars(params):
                    'robot_dim': params['robot_dim'],
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
-                #    'num_modes': params['num_modes'], # only for PartialRelocate policy
+                #    'num_modes': params['num_modes'], # only for EigenRelocate policy
                    'PID_controller': Simple_PID}
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
@@ -487,7 +488,7 @@ if __name__ == '__main__':
     parser.add_argument('--task_id', type=str, default='relocate')
     parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=32) #directions kept for gradient update
+    parser.add_argument('--deltas_used', '-du', type=int, default=80) #directions kept for gradient update
     parser.add_argument('--step_size', '-s', type=float, default=0.05)#0.02, alpha in the paper
     parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
@@ -508,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('--object', type=str, default = 'ball')
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
-    parser.add_argument('--num_modes', type=int, default = 759) #PartialRelocate only, for relocate task in [1, 759]
+    parser.add_argument('--num_modes', type=int, default = 10) #EigenRelocate only, for relocate task in [1, 759]
     #parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
     parser.add_argument('--params_path', type = str)
     
