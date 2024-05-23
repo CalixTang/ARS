@@ -302,6 +302,7 @@ class ARSLearner(object):
         t2 = time.time()
 
         print('Time to generate rollouts:', t2 - t1)
+        raw_rollout_rewards = rollout_rewards[:]
 
         if evaluate:
             return rollout_rewards
@@ -314,7 +315,7 @@ class ARSLearner(object):
         idx = np.arange(max_rewards.size)[max_rewards >= np.percentile(max_rewards, 100*(1 - (self.deltas_used / self.num_deltas)))]
         deltas_idx = deltas_idx[idx]
         rollout_rewards = rollout_rewards[idx,:]
-        raw_rollout_rewards = rollout_rewards[:]
+        
         
         # normalize rewards by their standard deviation
         rollout_rewards /= np.std(rollout_rewards)
@@ -342,8 +343,8 @@ class ARSLearner(object):
         return rewards
 
     def train(self, num_iter, num_eval_rollouts = 100):
-        print("Starting training")
-        training_rewards = np.zeros((num_iter, self.deltas_used * 2))
+        # print("Starting training")
+        training_rewards = np.zeros((num_iter, self.num_deltas * 2))
         eval_rewards = np.zeros((num_iter // 10, num_eval_rollouts))
 
         best_eval_policy_weights = self.w_policy #initial weights
@@ -364,7 +365,6 @@ class ARSLearner(object):
 
             # record statistics every 10 iterations
             if ((i + 1) % 10 == 0):
-                print(f"It {i}", flush = True)
                 rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
                 w = ray.get(self.workers[0].get_weights_plus_stats.remote())
                 # np.save(self.logdir + "/koopman_policy.npy", w)
@@ -405,7 +405,7 @@ class ARSLearner(object):
             # waiting for increment of all workers
             ray.get(increment_filters_ids)            
             t2 = time.time()
-            print('Time to sync statistics:', t2 - t1)
+            print('Time to sync statistics:', t2 - t1, flush = True)
 
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
@@ -431,12 +431,16 @@ class ARSLearner(object):
 def run_ars(params):
 
     dir_path = params['dir_path']
+    logdir = None
 
     if not(os.path.exists(dir_path)):
         os.makedirs(dir_path)
-    logdir = os.path.join(dir_path, str(time.time_ns()))
-    while os.path.exists(logdir):
+    if params.get('run_name', None) is not None:
+        logdir = os.path.join(dir_path, params['run_name'])
+    else:
         logdir = os.path.join(dir_path, str(time.time_ns()))
+        while os.path.exists(logdir):
+            logdir = os.path.join(dir_path, str(time.time_ns()))
     print(f"Logging to directory {logdir}")
     os.makedirs(logdir)
 
@@ -458,7 +462,7 @@ def run_ars(params):
                    'robot_dim': params['robot_dim'],
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
-                #    'num_modes': params['num_modes'], # only for EigenRelocate policy
+                   'num_modes': params['num_modes'], # only for EigenRelocate policy
                    'PID_controller': Simple_PID}
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
@@ -506,6 +510,7 @@ if __name__ == '__main__':
     parser.add_argument('--filter', type=str, default='NoFilter') 
 
     #for relocate task, allow different object
+    parser.add_argument('--run_name', type = str)
     parser.add_argument('--object', type=str, default = 'ball')
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
@@ -525,6 +530,6 @@ if __name__ == '__main__':
     if args.params_path is not None:
         import json
         params = json.load(open(args.params_path, 'r'))
-        print(params)
+        # print(params)
     
     run_ars(params)
