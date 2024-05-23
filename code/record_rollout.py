@@ -103,7 +103,8 @@ if __name__ == '__main__':
                    'robot_dim': params['robot_dim'],
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
-                   'PID_controller': Simple_PID}
+                   'PID_controller': Simple_PID,
+                   'num_modes': params['num_modes']} #only for EigenRelocate
     
     policy = None
     
@@ -111,6 +112,8 @@ if __name__ == '__main__':
         policy = LinearPolicy(policy_params)
     elif policy_params['type'] == 'relocate':
         policy = RelocatePolicy(policy_params)
+    elif policy_params['type'] == 'eigenrelocate':
+        policy = EigenRelocatePolicy(policy_params)
     else:
         raise NotImplementedError
     
