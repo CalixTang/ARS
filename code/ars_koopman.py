@@ -61,6 +61,18 @@ class Worker(object):
             self.policy = EigenRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
+        
+        if policy_params['policy_checkpoint_path'] is not '':
+            try:
+                self.policy.update_weights(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True))
+            except Exception as e:
+                print('Policy checkpoint path invalid')
+        if policy_params['filter_checkpoint_path'] is not '':
+            try:
+                self.policy.observation_filter = self.policy.observation_filter.from_dict(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True)[()])
+            except Exception as e:
+                print('Policy checkpoint path invalid')
+        
             
         self.delta_std = delta_std
         self.rollout_length = rollout_length
@@ -463,7 +475,10 @@ def run_ars(params):
                    'obj_dim': params['obj_dim'],
                    'object': params['object'],
                    'num_modes': params['num_modes'], # only for EigenRelocate policy
-                   'PID_controller': Simple_PID}
+                   'PID_controller': Simple_PID,
+                   'policy_checkpoint_path': params.get('policy_checkpoint_path', ''),
+                   'filter_checkpoint_path': params.get('filter_checkpoint_path', '')
+                   }
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
     ARS = ARSLearner(task_id=params['task_id'],
@@ -489,6 +504,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
 
+    #ARS arguments
     parser.add_argument('--task_id', type=str, default='relocate')
     parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
@@ -497,7 +513,6 @@ if __name__ == '__main__':
     parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
     parser.add_argument('--rollout_length', '-r', type=int, default=200) #100 timesteps * 5 b/c of the PID subsampling
-
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
@@ -505,21 +520,22 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=237)
     parser.add_argument('--policy_type', type=str, default='relocate')
     parser.add_argument('--dir_path', type=str, default='data')
-
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
 
-    #for relocate task, allow different object
-    parser.add_argument('--run_name', type = str)
+    #relocate-specific arguments 
     parser.add_argument('--object', type=str, default = 'ball')
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
     parser.add_argument('--num_modes', type=int, default = 10) #EigenRelocate only, for relocate task in [1, 759]
-    #parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
-    parser.add_argument('--params_path', type = str)
     
-    # local_ip = socket.gethostbyname(socket.gethostname())
-
+    #utility arguments
+    parser.add_argument('--params_path', type = str)
+    parser.add_argument('--policy_checkpoint_path', type = str)
+    parser.add_argument('--filter_checkpoint_path', type = str)
+    parser.add_argument('--run_name', type = str)
+    
+   
     
     
     args = parser.parse_args()

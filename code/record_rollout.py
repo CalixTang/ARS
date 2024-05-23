@@ -120,8 +120,8 @@ if __name__ == '__main__':
     policy.update_filter = False
 
     if policy_params['ob_filter'] != 'NoFilter':
-        x = policy.observation_filter.from_dict(np.load(os.path.join(args.logdir, args.filter_file), allow_pickle = True)[()])
-        print(x)
+        policy.observation_filter = policy.observation_filter.from_dict(np.load(os.path.join(args.logdir, args.filter_file), allow_pickle = True)[()])
+        # print(x)
     
 
     record_rollouts(task_id=params['task_id'],
