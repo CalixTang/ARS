@@ -9,7 +9,6 @@ import parser
 import time
 import os
 import numpy as np
-# import gym
 from mjrl.utils.gym_env import GymEnv
 from mjrl.KODex_utils.Controller import *
 import logz
@@ -25,6 +24,8 @@ import mjrl.envs
 import mj_envs   # read the env files (task files)
 import time 
 import graph_results
+import gym
+
 
 @ray.remote
 class Worker(object):
@@ -41,10 +42,7 @@ class Worker(object):
                  delta_std=0.02):
 
         # initialize OpenAI environment for each worker
-        if task_id == 'relocate':
-            self.env = GymEnv('relocate-v0', "PID", policy_params['object'])
-        else:
-            self.env = GymEnv(task_id, "PID")
+        self.env = gym.make(task_id)
         self.env.seed(env_seed)
 
         # each worker gets access to the shared noise table
@@ -52,12 +50,32 @@ class Worker(object):
         # from the shared noise table. 
         self.deltas = SharedNoiseTable(deltas, env_seed + 7)
         self.policy_params = policy_params
+
+        # initialize policy 
         if policy_params['type'] == 'linear':
             self.policy = LinearPolicy(policy_params)
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
+        elif policy_params['type'] == 'koopman':
+            self.policy = KoopmanPolicy(policy_params)
+        elif policy_params['type'] == 'cheetah':
+            self.policy = CheetahPolicy(policy_params)
+        elif policy_params['type'] == 'eigenrelocate':
+            self.policy = EigenRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
+        
+        if policy_params['policy_checkpoint_path']:
+            try:
+                self.policy.update_weights(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True))
+            except Exception as e:
+                print('Policy checkpoint path invalid')
+        if policy_params['filter_checkpoint_path']:
+            try:
+                self.policy.observation_filter = self.policy.observation_filter.from_dict(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True)[()])
+            except Exception as e:
+                print('Policy checkpoint path invalid')
+        
             
         self.delta_std = delta_std
         self.rollout_length = rollout_length
@@ -83,23 +101,15 @@ class Worker(object):
         total_reward = 0.
         steps = 0
 
-        _ = self.env.reset()
+        ob = self.env.reset()
         for i in range(rollout_length):
-
-            #observe full state b/c we need it
-            ob = self.env.get_env_state()
-
-            #important - our relocation env outputs a dict as observation, so this will pull out the important parts
-            x = np.concatenate((ob['qpos'][ : 30], ob['target_pos'] - ob['obj_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
-
-            #generate torque action
-            action = self.policy.act(x) #hopefully this is linear
+            #generate action
+            action = self.policy.act(ob)
             
             reward = 0
 
-            #TODO: verify if we need to be using koopman op on the next_o or the actually observed env state
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            next_o, reward, done, goal_achieved = self.env.step(action)  
+            ob, reward, done, goal_achieved = self.env.step(action)  
             
             # ob, reward, done, _ = self.env.step(action)
             steps += 1
@@ -192,12 +202,8 @@ class ARSLearner(object):
 
         env = None
         
-        if task_id == 'relocate':
-            if not policy_params['object'] or policy_params['object'] == 'ball':
-                policy_params['object'] = ''
-            env = GymEnv('relocate-v0', "PID", policy_params['object'])
-        else:
-            env = GymEnv(task_id, "PID")
+        #why do we need to make this every time?
+        env = gym.make(task_id)
         
         self.timesteps = 0
         self.action_size = env.action_space.shape[0]
@@ -235,12 +241,17 @@ class ARSLearner(object):
         # initialize policy 
         if policy_params['type'] == 'linear':
             self.policy = LinearPolicy(policy_params)
-            self.w_policy = self.policy.get_weights()
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
-            self.w_policy = self.policy.get_weights()
+        elif policy_params['type'] == 'koopman':
+            self.policy = KoopmanPolicy(policy_params)
+        elif policy_params['type'] == 'cheetah':
+            self.policy = CheetahPolicy(policy_params)
+        elif policy_params['type'] == 'eigenrelocate':
+            self.policy = EigenRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
+        self.w_policy = self.policy.get_weights()
             
         # initialize optimization algorithm
         self.optimizer = optimizers.SGD(self.w_policy, self.step_size)        
@@ -299,6 +310,7 @@ class ARSLearner(object):
         t2 = time.time()
 
         print('Time to generate rollouts:', t2 - t1)
+        raw_rollout_rewards = rollout_rewards[:]
 
         if evaluate:
             return rollout_rewards
@@ -312,6 +324,7 @@ class ARSLearner(object):
         deltas_idx = deltas_idx[idx]
         rollout_rewards = rollout_rewards[idx,:]
         
+        
         # normalize rewards by their standard deviation
         rollout_rewards /= np.std(rollout_rewards)
 
@@ -324,7 +337,7 @@ class ARSLearner(object):
         g_hat /= deltas_idx.size
         t2 = time.time()
         print('time to aggregate rollouts', t2 - t1)
-        return g_hat, rollout_rewards
+        return g_hat, raw_rollout_rewards
         
 
     def train_step(self):
@@ -338,8 +351,8 @@ class ARSLearner(object):
         return rewards
 
     def train(self, num_iter, num_eval_rollouts = 100):
-        print("Starting training")
-        training_rewards = np.zeros((num_iter, self.deltas_used * 2))
+        # print("Starting training")
+        training_rewards = np.zeros((num_iter, self.num_deltas * 2))
         eval_rewards = np.zeros((num_iter // 10, num_eval_rollouts))
 
         best_eval_policy_weights = self.w_policy #initial weights
@@ -360,7 +373,6 @@ class ARSLearner(object):
 
             # record statistics every 10 iterations
             if ((i + 1) % 10 == 0):
-                print(f"It {i}", flush = True)
                 rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
                 w = ray.get(self.workers[0].get_weights_plus_stats.remote())
                 # np.save(self.logdir + "/koopman_policy.npy", w)
@@ -401,7 +413,7 @@ class ARSLearner(object):
             # waiting for increment of all workers
             ray.get(increment_filters_ids)            
             t2 = time.time()
-            print('Time to sync statistics:', t2 - t1)
+            print('Time to sync statistics:', t2 - t1, flush = True)
 
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
@@ -427,22 +439,25 @@ class ARSLearner(object):
 def run_ars(params):
 
     dir_path = params['dir_path']
+    logdir = None
 
     if not(os.path.exists(dir_path)):
         os.makedirs(dir_path)
-    logdir = os.path.join(dir_path, str(time.time_ns()))
-    while os.path.exists(logdir):
+    if params.get('run_name', None) is not None:
+        logdir = os.path.join(dir_path, params['run_name'])
+    else:
         logdir = os.path.join(dir_path, str(time.time_ns()))
+        while os.path.exists(logdir):
+            logdir = os.path.join(dir_path, str(time.time_ns()))
     print(f"Logging to directory {logdir}")
     os.makedirs(logdir)
 
-    #i think we don't care about these for our case?
-    # ob_dim = env.observation_space.shape[0]
-    # ac_dim = env.action_space.shape[0]
-    # print(ob_dim, ac_dim)
-
-    #this might be specific to relocate
-    ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], params['robot_dim']
+    #surely there's a better way to get the ob and ac dims
+    env = gym.make(params['task_id'])
+    ob_dim = env.observation_space.shape[0]
+    ac_dim = env.action_space.shape[0]
+    print(ob_dim, ac_dim)
+    # ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], 0
 
     PID_P = 10
     PID_D = 0.005  
@@ -453,8 +468,14 @@ def run_ars(params):
                    'ob_filter':params['filter'],
                    'ob_dim':ob_dim,
                    'ac_dim':ac_dim, 
-                   'object': params['object'],
-                   'PID_controller': Simple_PID}
+                #    'robot_dim': params['robot_dim'],
+                #    'obj_dim': params['obj_dim'],
+                #    'object': params['object'],
+                #    'num_modes': params['num_modes'], # only for EigenRelocate policy
+                   'PID_controller': Simple_PID,
+                   'policy_checkpoint_path': params.get('policy_checkpoint_path', None),
+                   'filter_checkpoint_path': params.get('filter_checkpoint_path', None)
+                   }
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
     ARS = ARSLearner(task_id=params['task_id'],
@@ -479,36 +500,41 @@ def run_ars(params):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--task_id', type=str, default='relocate')
-    parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
+
+    #ARS arguments
+    parser.add_argument('--task_id', type=str, default='HalfCheetah-v2')
+    parser.add_argument('--n_iter', '-n', type=int, default=500) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=32) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.05)#0.02, alpha in the paper
-    parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
+    parser.add_argument('--deltas_used', '-du', type=int, default=80) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.02)#0.02, alpha in the paper
+    parser.add_argument('--delta_std', '-std', type=float, default=0.03)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
     parser.add_argument('--rollout_length', '-r', type=int, default=200) #100 timesteps * 5 b/c of the PID subsampling
-
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='linear')
+    parser.add_argument('--policy_type', type=str, default='cheetah')
     parser.add_argument('--dir_path', type=str, default='data')
-
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
 
-    #for relocate task, allow different object
-    parser.add_argument('--object', type=str, default = 'ball')
-    parser.add_argument('--robot_dim', type=int, default = 30)
-    parser.add_argument('--obj_dim', type=int, default = 12)
-    #parser.add_argument('--env_init_path', type=str, default = 'Samples/Relocate/Relocate_task_20000_samples.pickle')
-    parser.add_argument('--params_path', type = str)
-    
-    # local_ip = socket.gethostbyname(socket.gethostname())
+    #relocate-specific arguments 
+    # parser.add_argument('--object', type=str, default = 'ball')
+    # parser.add_argument('--robot_dim', type=int, default = 30)
+    # parser.add_argument('--obj_dim', type=int, default = 12)
 
+    #eigenkoopman arg
+    # parser.add_argument('--num_modes', type=int, default = 10) #EigenRelocate only, for relocate task in [1, 759]
+    
+    #utility arguments
+    parser.add_argument('--params_path', type = str)
+    parser.add_argument('--policy_checkpoint_path', type = str)
+    parser.add_argument('--filter_checkpoint_path', type = str)
+    parser.add_argument('--run_name', type = str)
+    
+   
     
     
     args = parser.parse_args()
@@ -519,6 +545,6 @@ if __name__ == '__main__':
     if args.params_path is not None:
         import json
         params = json.load(open(args.params_path, 'r'))
-        print(params)
+        # print(params)
     
     run_ars(params)

@@ -9,7 +9,6 @@ import parser
 import time
 import os
 import numpy as np
-# import gym
 from mjrl.utils.gym_env import GymEnv
 from mjrl.KODex_utils.Controller import *
 import logz
@@ -25,6 +24,7 @@ import mjrl.envs
 import mj_envs   # read the env files (task files)
 import time 
 import graph_results
+import gym
 
 
 @ray.remote
@@ -53,21 +53,25 @@ class Worker(object):
         # from the shared noise table. 
         self.deltas = SharedNoiseTable(deltas, env_seed + 7)
         self.policy_params = policy_params
+        # initialize policy 
+        # initialize policy 
         if policy_params['type'] == 'linear':
             self.policy = LinearPolicy(policy_params)
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
+        elif policy_params['type'] == 'koopman':
+            self.policy = KoopmanPolicy(policy_params)
         elif policy_params['type'] == 'eigenrelocate':
             self.policy = EigenRelocatePolicy(policy_params)
         else:
             raise NotImplementedError
         
-        if policy_params['policy_checkpoint_path'] is not '':
+        if policy_params['policy_checkpoint_path']:
             try:
                 self.policy.update_weights(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True))
             except Exception as e:
                 print('Policy checkpoint path invalid')
-        if policy_params['filter_checkpoint_path'] is not '':
+        if policy_params['filter_checkpoint_path']:
             try:
                 self.policy.observation_filter = self.policy.observation_filter.from_dict(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True)[()])
             except Exception as e:
@@ -247,15 +251,15 @@ class ARSLearner(object):
         # initialize policy 
         if policy_params['type'] == 'linear':
             self.policy = LinearPolicy(policy_params)
-            self.w_policy = self.policy.get_weights()
         elif policy_params['type'] == 'relocate':
             self.policy = RelocatePolicy(policy_params)
-            self.w_policy = self.policy.get_weights()
+        elif policy_params['type'] == 'koopman':
+            self.policy = KoopmanPolicy(policy_params)
         elif policy_params['type'] == 'eigenrelocate':
             self.policy = EigenRelocatePolicy(policy_params)
-            self.w_policy = self.policy.get_weights()
         else:
             raise NotImplementedError
+        self.w_policy = self.policy.get_weights()
             
         # initialize optimization algorithm
         self.optimizer = optimizers.SGD(self.w_policy, self.step_size)        
