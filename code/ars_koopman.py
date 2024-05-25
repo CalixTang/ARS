@@ -55,16 +55,8 @@ class Worker(object):
         self.policy_params = policy_params
         # initialize policy 
         # initialize policy 
-        if policy_params['type'] == 'linear':
-            self.policy = LinearPolicy(policy_params)
-        elif policy_params['type'] == 'relocate':
-            self.policy = RelocatePolicy(policy_params)
-        elif policy_params['type'] == 'koopman':
-            self.policy = KoopmanPolicy(policy_params)
-        elif policy_params['type'] == 'eigenrelocate':
-            self.policy = EigenRelocatePolicy(policy_params)
-        else:
-            raise NotImplementedError
+        self.policy = get_policy(policy_params['type'], policy_params)
+
         
         if policy_params['policy_checkpoint_path']:
             try:
@@ -248,17 +240,8 @@ class ARSLearner(object):
                                       delta_std=delta_std) for i in range(num_workers)]
         print("Initialized workers.")
 
-        # initialize policy 
-        if policy_params['type'] == 'linear':
-            self.policy = LinearPolicy(policy_params)
-        elif policy_params['type'] == 'relocate':
-            self.policy = RelocatePolicy(policy_params)
-        elif policy_params['type'] == 'koopman':
-            self.policy = KoopmanPolicy(policy_params)
-        elif policy_params['type'] == 'eigenrelocate':
-            self.policy = EigenRelocatePolicy(policy_params)
-        else:
-            raise NotImplementedError
+        self.policy = get_policy(policy_params['type'], policy_params)
+
         self.w_policy = self.policy.get_weights()
             
         # initialize optimization algorithm

@@ -1,20 +1,22 @@
 import parser
 import os
 import numpy as np
-import gym
+# import gym
+from mjrl.utils.gym_env import GymEnv
 from policies import *
 from shared_noise import *
 from mjrl.KODex_utils.Observables import *
 from mjrl.KODex_utils.Controller import *
 import mjrl.envs
+import mj_envs   # read the env files (task files)
 import numpy as np
 from tqdm import tqdm
 import imageio
 import os
 from filter import Filter
 
-#modified version of run_policy.py and record_relocate from mjrl.utils.gym_env
-def record_rollouts(task_id='HalfCheetah-v2',
+# modified version of run_policy.py and record_relocate from mjrl.utils.gym_env
+def record_rollouts(task_id='relocate',
                 policy_params = None,
                 policy = None,
                 logdir=None,
@@ -26,13 +28,16 @@ def record_rollouts(task_id='HalfCheetah-v2',
         
     env = None 
 
-    env = gym.make(task_id)
+    if task_id == 'relocate':
+        env = GymEnv('relocate-v0', "PID", policy_params['object'])
+    else:
+        env = GymEnv(task_id, "PID")
     env.seed(seed)
 
     save_path = os.path.join(logdir, f"{task_id}_eval_{num_rollouts}_rollouts.mp4")
     vid_writer = imageio.get_writer(save_path, mode = 'I', fps = 60)
     
-    # env.viewer_setup()
+    env.env.mj_viewer_setup()
     
     total_reward = 0.
     steps = 0
@@ -41,21 +46,23 @@ def record_rollouts(task_id='HalfCheetah-v2',
 
     for i in tqdm(range(num_rollouts)):
 
-        ob = env.reset()
+        _ = env.reset()
         episode_reward = 0
+
         for t in range(rollout_length):
-            #generate torque action
-            action = policy.act(ob)
-            reward = 0
+            #observe full state b/c we need it
+            ob = env.get_env_state()
+            action = policy.get(ob)
 
-            #TODO: verify if we need to be using koopman op on the next_o or the actually observed env state
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            ob, reward, done, info = env.step(action)  
+            ob, reward, done, info = env.step(action) 
 
-            res = env.render(mode = 'rgb_array', width = vid_res[0], height = vid_res[1])
-            vid_writer.append_data(res)
-
-            episode_reward += (reward - shift)
+            res = env.env.viewer._read_pixels_as_in_window(resolution = vid_res)
+            vid_writer.append_data(res) 
+            
+            # ob, reward, done, _ = self.env.step(action)
+            steps += 1
+            total_reward += (reward - shift)
             if done:
                 break
         
@@ -79,27 +86,27 @@ if __name__ == '__main__':
     params = json.load(open(os.path.join(args.logdir, 'params.json'), 'r'))
     policy_path = os.path.join(args.logdir, args.policy_weight_file)
 
-    env = gym.make(params['task_id'])
-
-    ob_dim, ac_dim = env.observation_space.shape[0], env.action_space.shape[0]
-    PID_P = 0.1
-    PID_D = 0.001  
+    ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], 0
+    PID_P = 10
+    PID_D = 0.005  
     Simple_PID = PID(PID_P, 0.0, PID_D)
 
+    if not params['object'] or params['object'] == 'ball':
+        params['object'] = ''
 
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
     policy_params={'type':params['policy_type'],
                    'ob_filter':params['filter'],
                    'ob_dim':ob_dim,
                    'ac_dim':ac_dim, 
-                #    'robot_dim': params['robot_dim'],
-                #    'obj_dim': params['obj_dim'],
-                #    'object': params['object'],
-                # 'num_modes': params['num_modes'],#only for EigenRelocate
+                   'robot_dim': params['robot_dim'],
+                   'obj_dim': params['obj_dim'],
+                   'object': params['object'],
                    'PID_controller': Simple_PID,
-                   } 
+                   'num_modes': params['num_modes']} #only for EigenRelocate
     
     policy = get_policy(policy_params['type'], policy_params)
+    
     
 
     policy_w = np.load(policy_path, allow_pickle = True)

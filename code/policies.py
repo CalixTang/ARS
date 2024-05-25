@@ -12,6 +12,22 @@ from mjrl.KODex_utils.Observables import *
 from mjrl.KODex_utils.Controller import *
 import scipy.linalg as linalg 
 
+def get_policy(policy_name, policy_params):
+    if policy_name == 'linear':
+        return LinearPolicy(policy_params)
+    elif policy_name == 'relocate':
+        return RelocatePolicy(policy_params)
+    elif policy_name == 'koopman':
+        return KoopmanPolicy(policy_params)
+    elif policy_name == 'cheetah':
+        return MinCheetahPolicy(policy_params)
+    elif policy_name == 'swimmer':
+        return MinSwimmerPolicy(policy_params)
+    elif policy_name == 'eigenrelocate':
+        return EigenRelocatePolicy(policy_params)
+    else:
+        raise NotImplementedError
+
 class Policy(object):
 
     def __init__(self, policy_params):
@@ -63,58 +79,60 @@ class LinearPolicy(Policy):
 class KoopmanPolicy(Policy):
     """
     General policy for koopman operator-based policies.
-    Key distinction 
+    Key distinction between Koopman Policy and Linear Policy:
+        Koopman learns the koopman matrix and needs a separate conversion from next lifted state to action
+        Linear learns a direct (state -> action) function
     """
 
     def __init__(self, policy_params):
         super().__init__(policy_params)
 
         #lifting function + inferred weight dimension
-        self.koopman_obser = KoopmanObservable(policy_params['ob_dim'])
+        self.koopman_obser = IdentityObservable(policy_params['ob_dim'])
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
 
         #weights will be the koopman matrix - this can be pretty big
         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
         self.pid_controller = policy_params['PID_controller']
 
-    #koopman policies will need to perform updates in some custom way
+    #Act is not intended to be overridden - the functions called inside should be overriden
     def act(self, ob):
-        #extract relevant state information - [hand pos, target pos - obj pos, obj ori, obj vel]
+        #extract relevant state information - usually done when the environment gives us more variables in the observaiton than we really need
         x = self.extract_state_from_ob(ob)
         
-        #normalize if V2 - TODO figure out if we need to normalize, i've turned it off by default for now
+        #normalize if running ARS-V2
         x = self.observation_filter(x, update=self.update_filter)
 
-        #extract lifted state from state
+        #extract lifted state from state - z = g(x)
         z = self.extract_lifted_state(x)
 
-        #koopman update
+        #koopman update - z_{t + 1} = K @ z_t
         next_z = self.update_lifted_state(z)
 
-        #torque action from lifted state
+        #get action from lifted state
         action = self.get_act_from_lifted_state(next_z, ob)
         
         return action
 
-    #Should be overridden
+    
     def extract_state_from_ob(self, ob):
         return ob
     
     def extract_lifted_state(self, x):
         return self.koopman_obser.z(x)
     
-    #Should be overridden
+    #perform the koopman update z_{t+1} = K @ z_t
+    def update_lifted_state(self, z):
+        return self.weights @ z
+    
     def get_act_from_lifted_state(self, next_z, env_state):
         #assume that z contains x at its front
         next_x = next_z[:self.ob_dim]
         #assume that env_state is x
         self.pid_controller.set_goal(next_x)
-
         return self.pid_controller(env_state)
-    
-    #perform the koopman update z_{t+1} = K @ z_t
-    def update_lifted_state(self, z):
-        return self.weights @ z
+
+
 
     def get_weights_plus_stats(self):
         mu, std = self.observation_filter.get_stats()
@@ -124,14 +142,16 @@ class KoopmanPolicy(Policy):
 class EigenKoopmanPolicy(KoopmanPolicy):
     """
     General policy for koopman operator-based policies.
-    Key distinction 
+    Implements a compressed representation of the Koopman matrix K = W L W^+ (eigendecomposition representation)
+    Weights contains the eigenvectors and eigenvalues. An update to weights will update a hidden internal koopman matrix.
     """
 
     def __init__(self, policy_params):
         super().__init__(policy_params)
 
-        #additional parameter - the number of modes to use. can be up to the number of lifted states
+        #the number of modes (num of eigenvectors/values) can be up to the number of lifted states.
         self.num_modes = policy_params['num_modes']
+        self.clip_eigvals = policy_params.get('clip_eigvals', False)
 
         #make sure num modes is valid 
         assert self.num_modes > 0
@@ -147,7 +167,9 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         self.koopman_mat = self.koopman_mat_from_weights()
     
     def update_weights(self, new_weights):
-        KoopmanPolicy.update_weights(self, new_weights)
+        self.weights[:] = new_weights[:]
+        if self.clip_eigvals:
+            self.weights[-1, :] = np.clip(self.weights[-1, :], 0, 1) #clip eigenvalues to be reasonable values
         #update internal koopman mat from weights to avoid duplicate matmuls during rollouts
         self.koopman_mat = self.koopman_mat_from_weights()
     
@@ -158,7 +180,7 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         #K = W L W^{+}
         return W @ L @ linalg.pinv(W)
     
-    #Override the default behavior. Still performs the koopman update z_{t+1} = K @ z_t, but needs to calculate the full K matrix first from the number of modes we have
+    #Override the default behavior. Still performs the koopman update z_{t+1} = K @ z_t
     def update_lifted_state(self, z):
         #modes = eigvecs
         #z' = Kz = W L W^{+} z
@@ -168,16 +190,99 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         mu, std = self.observation_filter.get_stats()
         aux = np.asarray([self.weights, mu, std])
         return aux
-
     
-class CheetahPolicy(KoopmanPolicy):
+class SwimmerPolicy(KoopmanPolicy):
     """
-    General policy for koopman operator-based policies.
-    Key distinction 
+    Swimmer v2 policy
     """
 
     def __init__(self, policy_params):
         super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(policy_params['ob_dim'])
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+    #Should be overridden
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #follow Half Cheetah v2 specs
+
+        #assume that z contains x at its front
+        next_x = next_z[:self.ob_dim]
+        #joint angles (next states)
+        next_pos = next_x[1 : 3]
+
+        #assume that env_state is x
+        self.pid_controller.set_goal(next_pos)
+
+        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        # print(torque_action)
+        return torque_action
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    
+class MinSwimmerPolicy(KoopmanPolicy):
+    """
+    Another Swimmer v2 policy
+    """
+
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(2)
+        self.ob_dim = 2
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+    #get the relevant joint angles only - don't even look at angular velocities
+    def extract_state_from_ob(self, ob):
+        return ob[1 : 3]
+
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #follow Half Cheetah v2 specs
+
+        #assume that z contains x at its front
+        next_pos = next_z[:self.ob_dim]
+
+        #assume that env_state is x
+        self.pid_controller.set_goal(next_pos)
+
+        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        return torque_action
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    
+
+
+class CheetahPolicy(KoopmanPolicy):
+    """
+    Cheetah v2 policy
+    """
+
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(policy_params['ob_dim'])
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -194,16 +299,55 @@ class CheetahPolicy(KoopmanPolicy):
         curr_pos, curr_vel = env_state[2:8], env_state[11:17]
 
         #assume that pid will convert angle and angular velocity to torque
-        return self.pid_controller(curr_pos, curr_vel)
-    
-    #perform the koopman update z_{t+1} = K @ z_t
-    def update_lifted_state(self, z):
-        return self.weights @ z
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        # print(torque_action)
+        return torque_action
 
     def get_weights_plus_stats(self):
         mu, std = self.observation_filter.get_stats()
         aux = np.asarray([self.weights, mu, std])
         return aux
+    
+class MinCheetahPolicy(KoopmanPolicy):
+    """
+    Another Cheetah v2 policy
+    """
+
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(6)
+        self.ob_dim = 6
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+    #get the relevant joint angles only - don't even look at angular velocities
+    def extract_state_from_ob(self, ob):
+        return ob[2:8]
+
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #follow Half Cheetah v2 specs
+
+        #assume that z contains x at its front
+        next_pos = next_z[:self.ob_dim]
+
+        #assume that env_state is x
+        self.pid_controller.set_goal(next_pos)
+
+        curr_pos, curr_vel = env_state[2:8], env_state[11:17]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        # print(torque_action)
+        return torque_action
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    
 
 class RelocatePolicy(KoopmanPolicy):
     """
@@ -217,7 +361,7 @@ class RelocatePolicy(KoopmanPolicy):
         self.robot_dim = policy_params['robot_dim']
         self.obj_dim = policy_params['obj_dim']
 
-        self.koopman_obser = DraftedObservable(self.robot_dim, self.obj_dim)
+        self.koopman_obser = ManipulationObservable(self.robot_dim, self.obj_dim)
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
 
         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
@@ -261,7 +405,7 @@ class EigenRelocatePolicy(EigenKoopmanPolicy):
         self.robot_dim = policy_params['robot_dim']
         self.obj_dim = policy_params['obj_dim']
 
-        self.koopman_obser = DraftedObservable(self.robot_dim, self.obj_dim)
+        self.koopman_obser = ManipulationObservable(self.robot_dim, self.obj_dim)
         self.weight_dim = self.koopman_obser.compute_observables_from_self() + 1
 
         self.weights = np.zeros((self.weight_dim, self.num_modes), dtype = np.float64)

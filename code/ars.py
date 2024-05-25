@@ -52,18 +52,7 @@ class Worker(object):
         self.policy_params = policy_params
 
         # initialize policy 
-        if policy_params['type'] == 'linear':
-            self.policy = LinearPolicy(policy_params)
-        elif policy_params['type'] == 'relocate':
-            self.policy = RelocatePolicy(policy_params)
-        elif policy_params['type'] == 'koopman':
-            self.policy = KoopmanPolicy(policy_params)
-        elif policy_params['type'] == 'cheetah':
-            self.policy = CheetahPolicy(policy_params)
-        elif policy_params['type'] == 'eigenrelocate':
-            self.policy = EigenRelocatePolicy(policy_params)
-        else:
-            raise NotImplementedError
+        self.policy = get_policy(policy_params['type'], policy_params)
         
         if policy_params['policy_checkpoint_path']:
             try:
@@ -109,7 +98,7 @@ class Worker(object):
             reward = 0
 
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            ob, reward, done, goal_achieved = self.env.step(action)  
+            ob, reward, done, info = self.env.step(action)  
             
             # ob, reward, done, _ = self.env.step(action)
             steps += 1
@@ -239,18 +228,7 @@ class ARSLearner(object):
         print("Initialized workers.")
 
         # initialize policy 
-        if policy_params['type'] == 'linear':
-            self.policy = LinearPolicy(policy_params)
-        elif policy_params['type'] == 'relocate':
-            self.policy = RelocatePolicy(policy_params)
-        elif policy_params['type'] == 'koopman':
-            self.policy = KoopmanPolicy(policy_params)
-        elif policy_params['type'] == 'cheetah':
-            self.policy = CheetahPolicy(policy_params)
-        elif policy_params['type'] == 'eigenrelocate':
-            self.policy = EigenRelocatePolicy(policy_params)
-        else:
-            raise NotImplementedError
+        self.policy = get_policy(policy_params['type'], policy_params)
         self.w_policy = self.policy.get_weights()
             
         # initialize optimization algorithm
@@ -414,7 +392,7 @@ class ARSLearner(object):
             ray.get(increment_filters_ids)            
             t2 = time.time()
             print('Time to sync statistics:', t2 - t1, flush = True)
-
+        
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
         np.save(os.path.join(self.logdir, 'best_koopman_policy_weights.npy'), best_eval_policy_weights)
@@ -459,9 +437,9 @@ def run_ars(params):
     print(ob_dim, ac_dim)
     # ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], 0
 
-    PID_P = 10
-    PID_D = 0.005  
-    Simple_PID = PID(PID_P, 0.0, PID_D)
+    PID_P = 0.1
+    PID_D = 0.001 
+    pd_controller = PID(PID_P, 0.0, PID_D)
 
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
     policy_params={'type':params['policy_type'],
@@ -471,8 +449,8 @@ def run_ars(params):
                 #    'robot_dim': params['robot_dim'],
                 #    'obj_dim': params['obj_dim'],
                 #    'object': params['object'],
-                #    'num_modes': params['num_modes'], # only for EigenRelocate policy
-                   'PID_controller': Simple_PID,
+                   'num_modes': params['num_modes'], # only for EigenRelocate policy
+                   'PID_controller': pd_controller,
                    'policy_checkpoint_path': params.get('policy_checkpoint_path', None),
                    'filter_checkpoint_path': params.get('filter_checkpoint_path', None)
                    }
@@ -502,20 +480,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     #ARS arguments
-    parser.add_argument('--task_id', type=str, default='HalfCheetah-v2')
-    parser.add_argument('--n_iter', '-n', type=int, default=500) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=80) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.02)#0.02, alpha in the paper
-    parser.add_argument('--delta_std', '-std', type=float, default=0.03)# 0.03, v in the paper
+    #HalfCheetah-v2, 
+    parser.add_argument('--task_id', type=str, default='Swimmer-v2')
+    parser.add_argument('--n_iter', '-n', type=int, default=2000) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=128) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=64) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.5)#0.02, alpha in the paper #0.04
+    parser.add_argument('--delta_std', '-std', type=float, default=0.1)# 0.03, v in the paper #4e-3
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
-    parser.add_argument('--rollout_length', '-r', type=int, default=200) #100 timesteps * 5 b/c of the PID subsampling
+    parser.add_argument('--rollout_length', '-r', type=int, default=1000) #100 timesteps * 5 b/c of the PID subsampling
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='cheetah')
+    parser.add_argument('--policy_type', type=str, default='swimmer')
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
@@ -526,7 +505,7 @@ if __name__ == '__main__':
     # parser.add_argument('--obj_dim', type=int, default = 12)
 
     #eigenkoopman arg
-    # parser.add_argument('--num_modes', type=int, default = 10) #EigenRelocate only, for relocate task in [1, 759]
+    parser.add_argument('--num_modes', type=int, default = 0) #EigenRelocate only, for relocate task in [1, 759]
     
     #utility arguments
     parser.add_argument('--params_path', type = str)
