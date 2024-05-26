@@ -493,9 +493,9 @@ if __name__ == '__main__':
 
     #ARS arguments
     parser.add_argument('--task_id', type=str, default='relocate')
-    parser.add_argument('--n_iter', '-n', type=int, default=300) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=80) #directions kept for gradient update
+    parser.add_argument('--n_iter', '-n', type=int, default=200) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=64) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=32) #directions kept for gradient update
     parser.add_argument('--step_size', '-s', type=float, default=0.05)#0.02, alpha in the paper
     parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default = 8)

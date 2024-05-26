@@ -209,6 +209,8 @@ class ARSLearner(object):
         self.num_episodes_used = float('inf')
         self.filter_type = policy_params['ob_filter']
 
+        self.reward_threshold = params['reward_threshold']
+
         
         # create shared table for storing noise
         print("Creating deltas table.")
@@ -392,6 +394,11 @@ class ARSLearner(object):
             ray.get(increment_filters_ids)            
             t2 = time.time()
             print('Time to sync statistics:', t2 - t1, flush = True)
+
+            if ((i + 1) % 10 == 0):
+                if best_eval_policy_reward > self.reward_threshold:
+                    print(f'Eval reward threshold of {self.reward_threshold} reached before training time limit. Ending training early at iteration {i + 1}.')
+                    break
         
         #save best weights
         print(f'Best eval policy mean reward: {best_eval_policy_reward}')
@@ -429,6 +436,9 @@ def run_ars(params):
             logdir = os.path.join(dir_path, str(time.time_ns()))
     print(f"Logging to directory {logdir}")
     os.makedirs(logdir)
+
+    if params.get('reward_threshold', None) is None or params.get('reward_threshold', None) < 0:
+        params['reward_threshold'] = float('inf')
 
     #surely there's a better way to get the ob and ac dims
     env = gym.make(params['task_id'])
@@ -481,20 +491,20 @@ if __name__ == '__main__':
 
     #ARS arguments
     #HalfCheetah-v2, 
-    parser.add_argument('--task_id', type=str, default='Swimmer-v2')
-    parser.add_argument('--n_iter', '-n', type=int, default=2000) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=128) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=64) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.5)#0.02, alpha in the paper #0.04
-    parser.add_argument('--delta_std', '-std', type=float, default=0.1)# 0.03, v in the paper #4e-3
+    parser.add_argument('--task_id', type=str, default='Ant-v2')
+    parser.add_argument('--n_iter', '-n', type=int, default=10000) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=60) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=20) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.015)#0.02, alpha in the paper #0.04
+    parser.add_argument('--delta_std', '-std', type=float, default=0.025)# 0.03, v in the paper #4e-3
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
     parser.add_argument('--rollout_length', '-r', type=int, default=1000) #100 timesteps * 5 b/c of the PID subsampling
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
-    parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
+    parser.add_argument('--shift', type=float, default=1) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='swimmer')
+    parser.add_argument('--policy_type', type=str, default='linear')
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
@@ -512,6 +522,9 @@ if __name__ == '__main__':
     parser.add_argument('--policy_checkpoint_path', type = str)
     parser.add_argument('--filter_checkpoint_path', type = str)
     parser.add_argument('--run_name', type = str)
+
+    #added to allow for running only until a certain performance threshold is reached 
+    parser.add_argument('--reward_threshold', type = float, default = float('inf')) 
     
    
     

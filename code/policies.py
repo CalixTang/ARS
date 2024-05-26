@@ -13,6 +13,7 @@ from mjrl.KODex_utils.Controller import *
 import scipy.linalg as linalg 
 
 def get_policy(policy_name, policy_params):
+    print(policy_name)
     if policy_name == 'linear':
         return LinearPolicy(policy_params)
     elif policy_name == 'relocate':
@@ -20,9 +21,17 @@ def get_policy(policy_name, policy_params):
     elif policy_name == 'koopman':
         return KoopmanPolicy(policy_params)
     elif policy_name == 'cheetah':
-        return MinCheetahPolicy(policy_params)
+        return CheetahPolicy(policy_params)
     elif policy_name == 'swimmer':
+        return SwimmerPolicy(policy_params)
+    elif policy_name == 'ant':
+        return AntPolicy(policy_params)
+    elif policy_name == 'mincheetah':
+        return MinCheetahPolicy(policy_params)
+    elif policy_name == 'minswimmer':
         return MinSwimmerPolicy(policy_params)
+    elif policy_name == 'minant':
+        return MinAntPolicy(policy_params)
     elif policy_name == 'eigenrelocate':
         return EigenRelocatePolicy(policy_params)
     else:
@@ -190,7 +199,7 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         mu, std = self.observation_filter.get_stats()
         aux = np.asarray([self.weights, mu, std])
         return aux
-    
+
 class SwimmerPolicy(KoopmanPolicy):
     """
     Swimmer v2 policy
@@ -267,8 +276,6 @@ class MinSwimmerPolicy(KoopmanPolicy):
         mu, std = self.observation_filter.get_stats()
         aux = np.asarray([self.weights, mu, std])
         return aux
-    
-
 
 class CheetahPolicy(KoopmanPolicy):
     """
@@ -341,6 +348,83 @@ class MinCheetahPolicy(KoopmanPolicy):
         #assume that pid will convert angle and angular velocity to torque
         torque_action = self.pid_controller(curr_pos, curr_vel)
         # print(torque_action)
+        return torque_action
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    
+class AntPolicy(KoopmanPolicy):
+    """
+    Ant v2 policy
+    """
+
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(policy_params['ob_dim'])
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+    #Should be overridden
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #follow Ant v2 specs
+
+        #assume that z contains x at its front
+        next_x = next_z[:self.ob_dim]
+        #joint angles (next states)
+        next_pos = next_x[1 : 3]
+
+        #assume that env_state is x
+        self.pid_controller.set_goal(next_pos)
+
+        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        # print(torque_action)
+        return torque_action
+
+    def get_weights_plus_stats(self):
+        mu, std = self.observation_filter.get_stats()
+        aux = np.asarray([self.weights, mu, std])
+        return aux
+    
+class MinAntPolicy(KoopmanPolicy):
+    """
+    Another Ant v2 policy
+    """
+
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = LocomotionObservable(2)
+        self.ob_dim = 2
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+        #testing out diff instantiation
+        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+    #get the relevant joint angles only - don't even look at angular velocities
+    def extract_state_from_ob(self, ob):
+        return ob[1 : 3]
+
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #follow Ant v2 specs
+
+        #assume that z contains x at its front
+        next_pos = next_z[:self.ob_dim]
+
+        #assume that env_state is x
+        self.pid_controller.set_goal(next_pos)
+
+        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
         return torque_action
 
     def get_weights_plus_stats(self):
