@@ -491,12 +491,12 @@ if __name__ == '__main__':
 
     #ARS arguments
     #HalfCheetah-v2, 
-    parser.add_argument('--task_id', type=str, default='Ant-v2')
-    parser.add_argument('--n_iter', '-n', type=int, default=10000) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=60) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=20) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.015)#0.02, alpha in the paper #0.04
-    parser.add_argument('--delta_std', '-std', type=float, default=0.025)# 0.03, v in the paper #4e-3
+    parser.add_argument('--task_id', type=str, default='Hopper-v2')
+    parser.add_argument('--n_iter', '-n', type=int, default=4000) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=128) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=64) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.2)#0.02, alpha in the paper #0.04
+    parser.add_argument('--delta_std', '-std', type=float, default=0.25)# 0.03, v in the paper #4e-3
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
     parser.add_argument('--rollout_length', '-r', type=int, default=1000) #100 timesteps * 5 b/c of the PID subsampling
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
@@ -504,7 +504,7 @@ if __name__ == '__main__':
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=1) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='linear')
+    parser.add_argument('--policy_type', type=str, default='hopper')
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
