@@ -95,19 +95,50 @@ class Worker(object):
         steps = 0
 
         _ = self.env.reset()
+        robot_dim, obj_dim = self.policy_params['robot_dim'], self.policy_params['obj_dim']
+        
+        ob = self.env.get_env_state()
+        x = np.concatenate((ob['qpos'][ : 30], ob['obj_pos'] - ob['target_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
+        
+        hand_state, obj_state = x[ : robot_dim], x[robot_dim : ]
+        z = self.policy.koopman_obser.z(hand_state, obj_state)
+
+        success_ctr = 0
+        success_thresh = 10
+
         for i in range(rollout_length):
+            next_z = self.policy.update_lifted_state(z)
 
-            #observe full state b/c we need it
-            ob = self.env.get_env_state()
+            next_hand_state, next_obj_state = next_z[:robot_dim], next_z[2 * robot_dim: 2 * robot_dim + obj_dim]  # retrieved robot & object states
+            self.policy.pid_controller.set_goal(next_hand_state) 
 
+            reward = 0
+            done = False
+            goal_achieved = False
+
+            for _ in range(5):
+                sub_ob = self.env.get_env_state()
+                # for relocation task, it we set a higher control frequency, we can expect a much better PD performance
+                torque_action = self.policy.pid_controller(sub_ob['qpos'][:30], sub_ob['qvel'][:30])
+                torque_action[1] -= 0.95  # hand_Txyz[1] -> hand_T_y
+                next_o, substep_reward, done, goal_achieved = self.env.step(torque_action) 
+
+                reward += substep_reward
+            
+            if goal_achieved['goal_achieved']:
+                success_ctr += 1
+
+
+            """
             #generate torque action
             action = self.policy.act(ob)
-            
             reward = 0
 
-            #TODO: verify if we need to be using koopman op on the next_o or the actually observed env state
-            #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
+            #TODO: check if this is valid - we are doing 1 koopman update - 1 step here, and in CIMER it's handled as 1 koopman - 5 steps
             next_o, reward, done, goal_achieved = self.env.step(action)  
+            """
+
+            z = next_z
             
             # ob, reward, done, _ = self.env.step(action)
             steps += 1
@@ -115,14 +146,14 @@ class Worker(object):
             if done:
                 break
             
-        return total_reward, steps
+        return total_reward, steps, success_ctr > success_thresh
 
     def do_rollouts(self, w_policy, num_rollouts = 1, shift = 1, evaluate = False):
         """ 
         Generate multiple rollouts with a policy parametrized by w_policy.
         """
 
-        rollout_rewards, deltas_idx = [], []
+        rollout_rewards, deltas_idx, successes = [], [], []
         steps = 0
 
         for i in range(num_rollouts):
@@ -136,8 +167,9 @@ class Worker(object):
 
                 # for evaluation we do not shift the rewards (shift = 0) and we use the
                 # default rollout length (1000 for the MuJoCo locomotion tasks)
-                reward, r_steps = self.rollout(shift = 0., rollout_length = self.rollout_length)
+                reward, r_steps, success = self.rollout(shift = 0., rollout_length = self.rollout_length)
                 rollout_rewards.append(reward)
+                successes.append(success)
                 
             else:
                 idx, delta = self.deltas.get_delta(w_policy.size)
@@ -150,16 +182,17 @@ class Worker(object):
 
                 # compute reward and number of timesteps used for positive perturbation rollout
                 self.policy.update_weights(w_policy + delta)
-                pos_reward, pos_steps  = self.rollout(shift = shift)
+                pos_reward, pos_steps, pos_success = self.rollout(shift = shift)
 
                 # compute reward and number of timesteps used for negative pertubation rollout
                 self.policy.update_weights(w_policy - delta)
-                neg_reward, neg_steps = self.rollout(shift = shift) 
+                neg_reward, neg_steps, neg_success = self.rollout(shift = shift) 
                 steps += pos_steps + neg_steps
 
                 rollout_rewards.append([pos_reward, neg_reward])
+                successes.append([pos_success, neg_success])
                             
-        return {'deltas_idx': deltas_idx, 'rollout_rewards': rollout_rewards, "steps" : steps}
+        return {'deltas_idx': deltas_idx, 'rollout_rewards': rollout_rewards, "steps" : steps, "successes": successes}
     
     def stats_increment(self):
         self.policy.observation_filter.stats_increment()
@@ -279,32 +312,36 @@ class ARSLearner(object):
         results_one = ray.get(rollout_ids_one)
         results_two = ray.get(rollout_ids_two)
 
-        rollout_rewards, deltas_idx = [], [] 
+        rollout_rewards, deltas_idx, successes = [], [], [] 
 
         for result in results_one:
             if not evaluate:
                 self.timesteps += result["steps"]
             deltas_idx += result['deltas_idx']
             rollout_rewards += result['rollout_rewards']
+            successes += result['successes']
 
         for result in results_two:
             if not evaluate:
                 self.timesteps += result["steps"]
             deltas_idx += result['deltas_idx']
             rollout_rewards += result['rollout_rewards']
+            successes += result['successes']
 
         deltas_idx = np.array(deltas_idx)
         rollout_rewards = np.array(rollout_rewards, dtype = np.float64)
-        
+        successes = np.array(successes).flatten()
+        t2 = time.time()
         print('Mean reward of collected rollouts:', rollout_rewards.mean())
         print('Maximum reward of collected rollouts:', rollout_rewards.max())
-        t2 = time.time()
+        print('Success rate of collected rollouts: ', successes.mean())
+        
 
         print('Time to generate rollouts:', t2 - t1)
         raw_rollout_rewards = rollout_rewards[:]
 
         if evaluate:
-            return rollout_rewards
+            return rollout_rewards, successes
 
         # select top performing directions if deltas_used < num_deltas
         max_rewards = np.max(rollout_rewards, axis = 1)
@@ -364,7 +401,7 @@ class ARSLearner(object):
 
             # record statistics every 10 iterations
             if ((i + 1) % 10 == 0):
-                rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
+                rewards, successes = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
                 w = ray.get(self.workers[0].get_weights_plus_stats.remote())
                 # np.save(self.logdir + "/koopman_policy.npy", w)
 
@@ -383,6 +420,7 @@ class ARSLearner(object):
                 logz.log_tabular("StdRewards", np.std(rewards))
                 logz.log_tabular("MaxRewardRollout", np.max(rewards))
                 logz.log_tabular("MinRewardRollout", np.min(rewards))
+                logz.log_tabular("Task Success Rate", np.mean(successes))
                 logz.log_tabular("timesteps", self.timesteps)
                 logz.dump_tabular()
                 
@@ -493,19 +531,19 @@ if __name__ == '__main__':
 
     #ARS arguments
     parser.add_argument('--task_id', type=str, default='relocate')
-    parser.add_argument('--n_iter', '-n', type=int, default=200) #training steps
-    parser.add_argument('--n_directions', '-nd', type=int, default=64) #directions explored - results in 2*d actual policies
-    parser.add_argument('--deltas_used', '-du', type=int, default=32) #directions kept for gradient update
-    parser.add_argument('--step_size', '-s', type=float, default=0.05)#0.02, alpha in the paper
+    parser.add_argument('--n_iter', '-n', type=int, default=2000) #training steps
+    parser.add_argument('--n_directions', '-nd', type=int, default=320) #directions explored - results in 2*d actual policies
+    parser.add_argument('--deltas_used', '-du', type=int, default=80) #directions kept for gradient update
+    parser.add_argument('--step_size', '-s', type=float, default=0.02)#0.02, alpha in the paper
     parser.add_argument('--delta_std', '-std', type=float, default=0.004)# 0.03, v in the paper
     parser.add_argument('--n_workers', '-e', type=int, default = 8)
-    parser.add_argument('--rollout_length', '-r', type=int, default=200) #100 timesteps * 5 b/c of the PID subsampling
+    parser.add_argument('--rollout_length', '-r', type=int, default=100) #100 timesteps * 5 b/c of the PID subsampling
     # for Swimmer-v1 and HalfCheetah-v1 use shift = 0
     # for Hopper-v1, Walker2d-v1, and Ant-v1 use shift = 1
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=0) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='relocate')
+    parser.add_argument('--policy_type', type=str, default='eigenrelocate')
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
@@ -514,7 +552,7 @@ if __name__ == '__main__':
     parser.add_argument('--object', type=str, default = 'ball')
     parser.add_argument('--robot_dim', type=int, default = 30)
     parser.add_argument('--obj_dim', type=int, default = 12)
-    parser.add_argument('--num_modes', type=int, default = 10) #EigenRelocate only, for relocate task in [1, 759]
+    parser.add_argument('--num_modes', type=int, default = 300) #EigenRelocate only, for relocate task in [1, 759]
     
     #utility arguments
     parser.add_argument('--params_path', type = str)
@@ -522,7 +560,6 @@ if __name__ == '__main__':
     parser.add_argument('--filter_checkpoint_path', type = str)
     parser.add_argument('--run_name', type = str)
     
-   
     
     
     args = parser.parse_args()

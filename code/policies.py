@@ -14,32 +14,45 @@ import scipy.linalg as linalg
 
 def get_policy(policy_name, policy_params):
     print(policy_name)
+
+    policy = None 
     if policy_name == 'linear':
-        return LinearPolicy(policy_params)
+        policy = LinearPolicy(policy_params)
     elif policy_name == 'relocate':
-        return RelocatePolicy(policy_params)
+        policy = RelocatePolicy(policy_params)
     elif policy_name == 'koopman':
-        return KoopmanPolicy(policy_params)
+        policy = KoopmanPolicy(policy_params)
     elif policy_name == 'cheetah':
-        return CheetahPolicy(policy_params)
+        policy = CheetahPolicy(policy_params)
     elif policy_name == 'swimmer':
-        return SwimmerPolicy(policy_params)
+        policy = SwimmerPolicy(policy_params)
     elif policy_name == 'ant':
-        return AntPolicy(policy_params)
+        policy = AntPolicy(policy_params)
     elif policy_name == 'hopper':
-        return HopperPolicy(policy_params)
+        policy = HopperPolicy(policy_params)
     elif policy_name == 'mincheetah':
-        return MinCheetahPolicy(policy_params)
+        policy = MinCheetahPolicy(policy_params)
     elif policy_name == 'minswimmer':
-        return MinSwimmerPolicy(policy_params)
+        policy = MinSwimmerPolicy(policy_params)
     elif policy_name == 'minant':
-        return MinAntPolicy(policy_params)
+        policy = MinAntPolicy(policy_params)
     elif policy_name == 'minhopper':
-        return MinHopperPolicy(policy_params)
+        policy = MinHopperPolicy(policy_params)
     elif policy_name == 'eigenrelocate':
-        return EigenRelocatePolicy(policy_params)
+        policy = EigenRelocatePolicy(policy_params)
     else:
         raise NotImplementedError
+    
+    if policy_params.get('policy_checkpoint_path', None) is not None:
+        print(f"Loading policy weights from {policy_params['policy_checkpoint_path']}")
+        policy.update_weights(np.load(policy_params['policy_checkpoint_path'], allow_pickle = True))
+    if policy_params.get('filter_checkpoint_path', None) is not None:
+        print(f"Loading policy observation filter weights from {policy_params['filter_checkpoint_path']}")
+        filter = np.load(policy_params['filter_checkpoint_path'], allow_pickle = True)
+        policy.observation_filter = policy.observation_filter.from_dict(filter) 
+    
+    print(policy.get_weights())
+    return policy
 
 class Policy(object):
 
@@ -168,7 +181,9 @@ class EigenKoopmanPolicy(KoopmanPolicy):
 
         #make sure num modes is valid 
         assert self.num_modes > 0
-        assert self.num_modes <= self.weight_dim
+
+        # can't use this because usually actual weight dim isnt set up yet
+        # assert self.num_modes <= self.weight_dim
 
         #to allow for storing eigenvalues in the same matrix
         self.weight_dim += 1
@@ -180,9 +195,21 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         self.koopman_mat = self.koopman_mat_from_weights()
     
     def update_weights(self, new_weights):
-        self.weights[:] = new_weights[:]
+
+        #if this is a koopman matrix, we update differently
+        if new_weights.shape[1] == self.weight_dim - 1:
+            L, W = linalg.eig(new_weights)
+            L = L[ : self.num_modes].real
+            W = W[:, : self.num_modes].real
+
+            self.weights[: -1, :] = W
+            self.weights[-1, :] = L
+        else:
+            self.weights[:] = new_weights[:]
+        
         if self.clip_eigvals:
             self.weights[-1, :] = np.clip(self.weights[-1, :], 0, 1) #clip eigenvalues to be reasonable values
+        
         #update internal koopman mat from weights to avoid duplicate matmuls during rollouts
         self.koopman_mat = self.koopman_mat_from_weights()
     
@@ -535,8 +562,8 @@ class RelocatePolicy(KoopmanPolicy):
         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
 
     def extract_state_from_ob(self, ob):
-        return np.concatenate((ob['qpos'][ : 30], ob['target_pos'] - ob['obj_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
-    
+        return np.concatenate((ob['qpos'][ : 30], ob['obj_pos'] - ob['target_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
+        # ob['qpos'][30:33]
     def extract_lifted_state(self, x):
         hand_state, obj_state = x[ : self.robot_dim], x[self.robot_dim : ]
         return self.koopman_obser.z(hand_state, obj_state)
@@ -581,7 +608,7 @@ class EigenRelocatePolicy(EigenKoopmanPolicy):
         self.koopman_mat = self.koopman_mat_from_weights()
 
     def extract_state_from_ob(self, ob):
-        return np.concatenate((ob['qpos'][ : 30], ob['target_pos'] - ob['obj_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
+        return np.concatenate((ob['qpos'][ : 30], ob['obj_pos'] - ob['target_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
         
     def extract_lifted_state(self, x):
         hand_state, obj_state = x[ : self.robot_dim], x[self.robot_dim : ]

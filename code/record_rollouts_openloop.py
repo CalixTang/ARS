@@ -16,97 +16,6 @@ import os
 from filter import Filter
 
 # modified version of run_policy.py and record_relocate from mjrl.utils.gym_env
-def record_rollouts(task_id='relocate',
-                policy_params = None,
-                policy = None,
-                logdir=None,
-                num_rollouts=50,
-                rollout_length = 500,
-                shift = 0.,
-                vid_res = [720, 640],
-                seed=123):
-        
-    env = None 
-
-    if task_id == 'relocate':
-        env = GymEnv('relocate-v0', "PID", policy_params['object'])
-    else:
-        env = GymEnv(task_id, "PID")
-    env.seed(seed)
-
-    save_path = os.path.join(logdir, f"{task_id}_eval_{num_rollouts}_rollouts.mp4")
-    vid_writer = imageio.get_writer(save_path, mode = 'I', fps = 60)
-    
-    env.env.mj_viewer_setup()
-    
-    total_reward = 0.
-    steps = 0
-
-    ep_rewards = np.zeros(num_rollouts)
-    ep_success = np.zeros(num_rollouts)
-
-    robot_dim, obj_dim = policy_params['robot_dim'], policy_params['obj_dim']
-    ep_success_thresh = 10
-
-    for i in tqdm(range(num_rollouts)):
-
-        _ = env.reset()
-        episode_reward = 0
-        # ep_success = False
-
-        for t in range(rollout_length):
-            #observe full state b/c we need it
-            ob = env.get_env_state()
-
-            
-            x = policy.extract_state_from_ob(ob)
-            z = policy.extract_lifted_state(x)
-            next_z = policy.update_lifted_state(z)
-
-            next_hand_state, next_obj_state = next_z[:robot_dim], next_z[2 * robot_dim: 2 * robot_dim + obj_dim]  # retrieved robot & object states
-            policy.pid_controller.set_goal(next_hand_state) 
-
-            reward = 0
-
-            done = False
-            goal_achieved = None
-
-            for _ in range(5):
-                sub_ob = env.get_env_state()
-                # for relocation task, it we set a higher control frequency, we can expect a much better PD performance
-                torque_action = policy.pid_controller(sub_ob['qpos'][:robot_dim], sub_ob['qvel'][:robot_dim])
-                torque_action[1] -= 0.95  # hand_Txyz[1] -> hand_T_y
-                next_o, substep_reward, done, goal_achieved = env.step(torque_action) 
-
-                reward += substep_reward
-
-            if goal_achieved['goal_achieved']:
-                ep_success[i] += 1
-            
-            """
-            ob = env.get_env_state()
-            action = policy.act(ob)
-            #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            ob, reward, done, info = env.step(action) 
-            """
-
-            res = env.env.viewer._read_pixels_as_in_window(resolution = vid_res)
-            vid_writer.append_data(res) 
-            
-            # ob, reward, done, _ = self.env.step(action)
-            steps += 1
-            episode_reward += (reward - shift)
-
-            if done:
-                break
-        
-        ep_rewards[i] = episode_reward
-    ep_success = (ep_success > ep_success_thresh)
-                
-    vid_writer.close()
-    return ep_rewards, ep_success
-
-# modified version of run_policy.py and record_relocate from mjrl.utils.gym_env
 def record_rollouts_open_loop(task_id='relocate',
                 policy_params = None,
                 policy = None,
@@ -115,7 +24,7 @@ def record_rollouts_open_loop(task_id='relocate',
                 rollout_length = 500,
                 shift = 0.,
                 vid_res = [720, 640],
-                seed=123):
+                seed=237):
         
     env = None 
 
@@ -147,8 +56,10 @@ def record_rollouts_open_loop(task_id='relocate',
 
         ob = env.get_env_state()
 
-        x = policy.extract_state_from_ob(ob)
-        z = policy.extract_lifted_state(x)
+        x = np.concatenate((ob['qpos'][ : 30], ob['obj_pos'] - ob['target_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
+        
+        hand_state, obj_state = x[ : robot_dim], x[robot_dim : ]
+        z = policy.koopman_obser.z(hand_state, obj_state)
         
 
         for t in range(rollout_length):
