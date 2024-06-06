@@ -30,26 +30,26 @@ def get_policy(policy_name, policy_params):
         policy = AntPolicy(policy_params)
     elif policy_name == 'hopper':
         policy = HopperPolicy(policy_params)
-    elif policy_name == 'mincheetah':
-        policy = MinCheetahPolicy(policy_params)
-    elif policy_name == 'minswimmer':
-        policy = MinSwimmerPolicy(policy_params)
-    elif policy_name == 'minant':
-        policy = MinAntPolicy(policy_params)
-    elif policy_name == 'minhopper':
-        policy = MinHopperPolicy(policy_params)
     elif policy_name == 'eigenrelocate':
         policy = EigenRelocatePolicy(policy_params)
     elif policy_name == 'truncatedkoopman':
         policy = TruncatedKoopmanPolicy(policy_params)
     elif policy_name == 'truncatedswimmer':
         policy = TruncatedSwimmerPolicy(policy_params)
-    elif policy_name == 'truncatedminswimmer':
-        policy = TruncatedMinSwimmerPolicy(policy_params)
     elif policy_name == 'truncatedant':
         policy = TruncatedAntPolicy(policy_params)
-    elif policy_name == 'truncatedminant':
-        policy = TruncatedMinAntPolicy(policy_params)
+    # elif policy_name == 'mincheetah':
+    #     policy = MinCheetahPolicy(policy_params)
+    # elif policy_name == 'minswimmer':
+    #     policy = MinSwimmerPolicy(policy_params)
+    # elif policy_name == 'minant':
+    #     policy = MinAntPolicy(policy_params)
+    # elif policy_name == 'minhopper':
+    #     policy = MinHopperPolicy(policy_params)
+    # elif policy_name == 'truncatedminswimmer':
+    #     policy = TruncatedMinSwimmerPolicy(policy_params)
+    # elif policy_name == 'truncatedminant':
+    #     policy = TruncatedMinAntPolicy(policy_params)
     else:
         raise NotImplementedError
     
@@ -61,7 +61,7 @@ def get_policy(policy_name, policy_params):
         filter = np.load(policy_params['filter_checkpoint_path'], allow_pickle = True)
         policy.observation_filter = policy.observation_filter.from_dict(filter) 
     
-    print(policy.get_weights())
+    print(policy.get_weights().shape)
     return policy
 
 class Policy(object):
@@ -325,73 +325,7 @@ class TruncatedSwimmerPolicy(TruncatedKoopmanPolicy):
         # print(torque_action)
         return torque_action
     
-class MinSwimmerPolicy(KoopmanPolicy):
-    """
-    Another Swimmer v2 policy
-    """
 
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(2)
-        self.ob_dim = 2
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[1 : 3]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Swimmer v2 specs
-
-        #assume that z contains x at its front
-        next_pos = next_z[:self.ob_dim]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        return torque_action
-
-class TruncatedMinSwimmerPolicy(TruncatedKoopmanPolicy):
-    """
-    Another Swimmer v2 policy
-    """
-
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(2)
-        self.ob_dim = 2
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.ob_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[1 : 3]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Swimmer v2 specs
-
-        #assume that z contains x at its front
-        next_pos = next_z[:self.ob_dim]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        return torque_action
 
 class CheetahPolicy(KoopmanPolicy):
     """
@@ -415,42 +349,6 @@ class CheetahPolicy(KoopmanPolicy):
         next_x = next_z[:self.ob_dim]
         #joint angles (next states)
         next_pos = next_x[2:8]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[2:8], env_state[11:17]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        # print(torque_action)
-        return torque_action
-
-    
-class MinCheetahPolicy(KoopmanPolicy):
-    """
-    Another Cheetah v2 policy
-    """
-
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(6)
-        self.ob_dim = 6
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[2:8]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Half Cheetah v2 specs
-
-        #assume that z contains x at its front
-        next_pos = next_z[:self.ob_dim]
 
         #assume that env_state is x
         self.pid_controller.set_goal(next_pos)
@@ -495,43 +393,6 @@ class HopperPolicy(KoopmanPolicy):
         # print(torque_action)
         return torque_action
 
-    
-class MinHopperPolicy(KoopmanPolicy):
-    """
-    Another Hopper v2 policy
-    """
-
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(3)
-        self.ob_dim = 3
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[np.r_[2 : 5]]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Hopper v2 specs
-
-        #assume that z contains x at its front
-        next_pos = next_z[: self.ob_dim]
-        #joint angles (next states)
-        next_pos = next_pos[2 : 5]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[2 : 5], env_state[8 : 11]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        return torque_action
-
 class AntPolicy(KoopmanPolicy):
     """
     Ant v2 policy
@@ -565,40 +426,7 @@ class AntPolicy(KoopmanPolicy):
         # print(torque_action)
         return torque_action
     
-class MinAntPolicy(KoopmanPolicy):
-    """
-    Another Ant v2 policy
-    """
 
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(11)
-        self.ob_dim = 11
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[np.r_[1 : 4, 5 : 13]]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Ant v2 specs
-
-        #assume that z contains x at its front
-        next_pos = next_z[: self.ob_dim]
-        next_pos = next_pos[3:]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[5 : 13], env_state[19 : 27]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        return torque_action
 
 class TruncatedAntPolicy(TruncatedKoopmanPolicy):
     """
@@ -631,38 +459,7 @@ class TruncatedAntPolicy(TruncatedKoopmanPolicy):
         # print(torque_action)
         return torque_action
     
-class TruncatedMinAntPolicy(TruncatedKoopmanPolicy):
-    """
-    Another Ant v2 policy
-    """
 
-    def __init__(self, policy_params):
-        super().__init__(policy_params)
-
-        self.koopman_obser = LocomotionObservable(11)
-        self.ob_dim = 11
-        self.weight_dim = self.koopman_obser.compute_observables_from_self()
-        
-        #testing out diff instantiation
-        self.weights = np.zeros((self.ob_dim, self.weight_dim), dtype = np.float64)
-    
-    #get the relevant joint angles only - don't even look at angular velocities
-    def extract_state_from_ob(self, ob):
-        return ob[np.r_[1 : 4, 5 : 13]]
-
-    def get_act_from_lifted_state(self, next_z, env_state):
-        #follow Ant v2 specs
-        
-        next_pos = next_z[3:]
-
-        #assume that env_state is x
-        self.pid_controller.set_goal(next_pos)
-
-        curr_pos, curr_vel = env_state[5 : 13], env_state[19 : 27]
-
-        #assume that pid will convert angle and angular velocity to torque
-        torque_action = self.pid_controller(curr_pos, curr_vel)
-        return torque_action
     
 
 class RelocatePolicy(KoopmanPolicy):
@@ -741,3 +538,212 @@ class EigenRelocatePolicy(EigenKoopmanPolicy):
 
 
 # TODO: brainstorm what it would mean to implement a SVD reconstruction-based policy
+
+
+# Min policy graveyard
+# class MinSwimmerPolicy(KoopmanPolicy):
+#     """
+#     Another Swimmer v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(2)
+#         self.ob_dim = 2
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[1 : 3]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Swimmer v2 specs
+
+#         #assume that z contains x at its front
+#         next_pos = next_z[:self.ob_dim]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         return torque_action
+
+# class TruncatedMinSwimmerPolicy(TruncatedKoopmanPolicy):
+#     """
+#     Another Swimmer v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(2)
+#         self.ob_dim = 2
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.ob_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[1 : 3]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Swimmer v2 specs
+
+#         #assume that z contains x at its front
+#         next_pos = next_z[:self.ob_dim]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[1 : 3], env_state[-2 :]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         return torque_action
+    
+# class MinAntPolicy(KoopmanPolicy):
+#     """
+#     Another Ant v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(11)
+#         self.ob_dim = 11
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[np.r_[1 : 4, 5 : 13]]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Ant v2 specs
+
+#         #assume that z contains x at its front
+#         next_pos = next_z[: self.ob_dim]
+#         next_pos = next_pos[3:]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[5 : 13], env_state[19 : 27]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         return torque_action
+
+# class TruncatedMinAntPolicy(TruncatedKoopmanPolicy):
+#     """
+#     Another Ant v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(11)
+#         self.ob_dim = 11
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.ob_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[np.r_[1 : 4, 5 : 13]]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Ant v2 specs
+        
+#         next_pos = next_z[3:]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[5 : 13], env_state[19 : 27]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         return torque_action
+
+# class MinCheetahPolicy(KoopmanPolicy):
+#     """
+#     Another Cheetah v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(6)
+#         self.ob_dim = 6
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[2:8]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Half Cheetah v2 specs
+
+#         #assume that z contains x at its front
+#         next_pos = next_z[:self.ob_dim]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[2:8], env_state[11:17]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         # print(torque_action)
+#         return torque_action
+    
+# class MinHopperPolicy(KoopmanPolicy):
+#     """
+#     Another Hopper v2 policy
+#     """
+
+#     def __init__(self, policy_params):
+#         super().__init__(policy_params)
+
+#         self.koopman_obser = LocomotionObservable(3)
+#         self.ob_dim = 3
+#         self.weight_dim = self.koopman_obser.compute_observables_from_self()
+        
+#         #testing out diff instantiation
+#         self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+    
+#     #get the relevant joint angles only - don't even look at angular velocities
+#     def extract_state_from_ob(self, ob):
+#         return ob[np.r_[2 : 5]]
+
+#     def get_act_from_lifted_state(self, next_z, env_state):
+#         #follow Hopper v2 specs
+
+#         #assume that z contains x at its front
+#         next_pos = next_z[: self.ob_dim]
+#         #joint angles (next states)
+#         next_pos = next_pos[2 : 5]
+
+#         #assume that env_state is x
+#         self.pid_controller.set_goal(next_pos)
+
+#         curr_pos, curr_vel = env_state[2 : 5], env_state[8 : 11]
+
+#         #assume that pid will convert angle and angular velocity to torque
+#         torque_action = self.pid_controller(curr_pos, curr_vel)
+#         return torque_action
