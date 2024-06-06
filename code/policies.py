@@ -128,7 +128,7 @@ class KoopmanPolicy(Policy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
 
         #weights will be the koopman matrix - this can be pretty big
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, dtype = np.float64)
         self.pid_controller = policy_params['PID_controller']
 
     #Act is not intended to be overridden - the functions called inside should be overriden
@@ -185,7 +185,7 @@ class TruncatedKoopmanPolicy(KoopmanPolicy):
         self.state_dim = policy_params.get('state_dim', policy_params['ob_dim'])
 
         #weights will be the truncated koopman matrix
-        self.weights = np.zeros((self.state_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.state_dim, self.weight_dim, dtype = np.float64)
         self.pid_controller = policy_params['PID_controller']
 
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -217,7 +217,7 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         #to allow for storing eigenvalues in the same matrix
         self.weight_dim += 1
         #weights in the shape [weight_dim + 1, num_modes], where the extra 1 comes from storing the eigenvalue associated with the mode
-        self.weights = np.zeros((self.weight_dim, self.num_modes), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, self.num_modes, dtype = np.float64)
         
         #by default, set eigenvalues to 1
         self.weights[-1, :] = 1
@@ -255,11 +255,6 @@ class EigenKoopmanPolicy(KoopmanPolicy):
         #z' = Kz = W L W^{+} z
         return self.koopman_mat @ z
 
-    def get_weights_plus_stats(self):
-        mu, std = self.observation_filter.get_stats()
-        aux = np.asarray([self.weights, mu, std])
-        return aux
-
 class SwimmerPolicy(KoopmanPolicy):
     """
     Swimmer v2 policy
@@ -272,7 +267,7 @@ class SwimmerPolicy(KoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -305,7 +300,7 @@ class TruncatedSwimmerPolicy(TruncatedKoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.state_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.state_dim, self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -339,7 +334,7 @@ class CheetahPolicy(KoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -372,7 +367,7 @@ class HopperPolicy(KoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -405,7 +400,7 @@ class AntPolicy(KoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -440,7 +435,7 @@ class TruncatedAntPolicy(TruncatedKoopmanPolicy):
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
         
         #testing out diff instantiation
-        self.weights = np.zeros((self.state_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.state_dim, self.weight_dim, dtype = np.float64)
     
     #Should be overridden
     def get_act_from_lifted_state(self, next_z, env_state):
@@ -477,7 +472,7 @@ class RelocatePolicy(KoopmanPolicy):
         self.koopman_obser = ManipulationObservable(self.robot_dim, self.obj_dim)
         self.weight_dim = self.koopman_obser.compute_observables_from_self()
 
-        self.weights = np.zeros((self.weight_dim, self.weight_dim), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, self.weight_dim, dtype = np.float64)
 
     def extract_state_from_ob(self, ob):
         return np.concatenate((ob['qpos'][ : 30], ob['obj_pos'] - ob['target_pos'], ob['qpos'][33:36], ob['qvel'][30:36]))
@@ -515,7 +510,7 @@ class EigenRelocatePolicy(EigenKoopmanPolicy):
         self.koopman_obser = ManipulationObservable(self.robot_dim, self.obj_dim)
         self.weight_dim = self.koopman_obser.compute_observables_from_self() + 1
 
-        self.weights = np.zeros((self.weight_dim, self.num_modes), dtype = np.float64)
+        self.weights = np.eye(self.weight_dim, self.num_modes, dtype = np.float64)
         self.weights[-1, :] = 1
         self.koopman_mat = self.koopman_mat_from_weights()
 
