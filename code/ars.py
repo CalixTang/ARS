@@ -9,8 +9,10 @@ import parser
 import time
 import os
 import numpy as np
-from mjrl.utils.gym_env import GymEnv
-from mjrl.KODex_utils.Controller import *
+# from mjrl.utils.gym_env import GymEnv
+from Controller import *
+from Observables import *
+# from mjrl.KODex_utils.Observables import *
 import logz
 import ray
 import utils
@@ -18,10 +20,10 @@ import optimizers
 from policies import *
 import socket
 from shared_noise import *
-from mjrl.KODex_utils.Observables import *
+
 from tqdm import tqdm
-import mjrl.envs
-import mj_envs   # read the env files (task files)
+# import mjrl.envs
+# import mj_envs   # read the env files (task files)
 import time 
 import graph_results
 import gym
@@ -29,7 +31,6 @@ import gym
 
 @ray.remote
 class Worker(object):
-    import mj_envs
     """ 
     Object class for parallel rollout generation.
     """
@@ -305,8 +306,12 @@ class ARSLearner(object):
         rollout_rewards = rollout_rewards[idx,:]
         
         
-        # normalize rewards by their standard deviation
-        rollout_rewards /= np.std(rollout_rewards)
+        # normalize rewards by their standard deviation - I suspect this might be leading to a div by 0...
+        if np.std(rollout_rewards) > 1e-12:
+            rollout_rewards /= np.std(rollout_rewards)
+        else:
+            print(f"Warning: Rollout reward std has gone below 1e-12: {np.std(rollout_rewards)}")
+            rollout_rewards /= 1e-8
 
         t1 = time.time()
         # aggregate rollouts to form g_hat, the gradient used to compute SGD step
@@ -314,7 +319,11 @@ class ARSLearner(object):
                                                   (self.deltas.get(idx, self.w_policy.size)
                                                    for idx in deltas_idx),
                                                   batch_size = 500)
-        g_hat /= deltas_idx.size
+        # print(deltas_idx.size, flush = True)
+        if deltas_idx.size != 0:
+            g_hat /= deltas_idx.size
+        else:
+            print("Warning: Deltas_idx is of size 0.", rollout_rewards, flush = True)
         t2 = time.time()
         print('time to aggregate rollouts', t2 - t1)
         return g_hat, raw_rollout_rewards
@@ -354,7 +363,7 @@ class ARSLearner(object):
             # record statistics every 10 iterations
             if ((i + 1) % 10 == 0):
                 rewards = self.aggregate_rollouts(num_rollouts = num_eval_rollouts, evaluate = True)
-                w = ray.get(self.workers[0].get_weights_plus_stats.remote())
+                w, mu, std = ray.get(self.workers[0].get_weights_plus_stats.remote())
                 # np.save(self.logdir + "/koopman_policy.npy", w)
 
                 eval_rewards[i // 10, :] = rewards.flatten()
@@ -413,7 +422,7 @@ class ARSLearner(object):
             ob_filter_obj = self.policy.get_observation_filter().as_dict()
             np.save(os.path.join(self.logdir, 'obs_filter.npy'), ob_filter_obj)
 
-            best_ob_filter_obj = self.policy.get_observation_filter.copy()
+            best_ob_filter_obj = self.policy.get_observation_filter().copy()
             best_ob_filter_obj.mean, best_ob_filter_obj.std = best_filter_mean, best_filter_std
             np.save(os.path.join(self.logdir, 'best_filter.npy'), ob_filter_obj)
 
