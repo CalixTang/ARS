@@ -369,9 +369,9 @@ class ARSLearner(object):
                 eval_rewards[i // 10, :] = rewards.flatten()
                 if rewards.mean() > best_eval_policy_reward:
                     best_eval_policy_reward = rewards.mean()
-                    best_eval_policy_weights = w[0]
+                    best_eval_policy_weights = w
                     if self.filter_type == 'MeanStdFilter':
-                        best_filter_mean, best_filter_std = w[1], w[2]
+                        best_filter_mean, best_filter_std = mu, std
                 
                 #eval logging
                 # print(sorted(self.params.items()))
