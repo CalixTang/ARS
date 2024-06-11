@@ -547,5 +547,7 @@ if __name__ == '__main__':
         import json
         params = json.load(open(args.params_path, 'r'))
         # print(params)
+        if args.run_name:
+            params['run_name'] = args.run_name
     
     run_ars(params)
