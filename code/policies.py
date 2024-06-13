@@ -608,12 +608,14 @@ class HumanoidPolicy(KoopmanPolicy):
         #assume that z contains x at its front
         next_x = next_z[:self.ob_dim]
         #joint angles (next states) - TODO verify that these are correct...
-        next_pos = np.concatenate(next_x[6], next_x[5], next_x[7 : 22])
+        pos_idx = np.r_[6, 5, 7 : 22]
+        vel_idx = np.r_[29, 28, 30 : 45]
+        next_pos = next_x[pos_idx]
 
         #assume that env_state is x
         self.pid_controller.set_goal(next_pos)
 
-        curr_pos, curr_vel = np.concatenate(env_state[6], env_state[5], env_state[7 : 22]), np.concatenate(env_state[29], env_state[28], env_state[30: 45])
+        curr_pos, curr_vel = env_state[pos_idx], env_state[vel_idx]
 
         #assume that pid will convert angle and angular velocity to torque
         torque_action = self.pid_controller(curr_pos, curr_vel)
@@ -639,12 +641,14 @@ class TruncatedHumanoidPolicy(TruncatedKoopmanPolicy):
         #follow Ant v2 specs - https://www.gymlibrary.dev/environments/mujoco/ant/#
 
         #joint angles (next states)
-        next_pos = np.concatenate(next_z[6], next_z[5], next_z[7 : 22])
-
+        pos_idx = np.r_[6, 5, 7 : 22]
+        vel_idx = np.r_[29, 28, 30 : 45]
+        
+        next_pos = next_z[pos_idx]
         #assume that env_state is x
         self.pid_controller.set_goal(next_pos)
 
-        curr_pos, curr_vel = np.concatenate(env_state[6], env_state[5], env_state[7 : 22]), np.concatenate(env_state[29], env_state[28], env_state[30: 45])
+        curr_pos, curr_vel = env_state[pos_idx], env_state[vel_idx]
 
         #assume that pid will convert angle and angular velocity to torque
         torque_action = self.pid_controller(curr_pos, curr_vel)
