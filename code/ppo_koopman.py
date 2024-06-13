@@ -408,19 +408,33 @@ class PPO:
         self.logger['batch_rews'] = []
         self.logger['actor_losses'] = []
 
-class PPOLearner():
-    def __init__():
-        #creating vectorized environment example
-        # envs = gym.vector.make("Hopper-v4", num_envs=3)
-        pass
 
-    def aggregate_rollouts():
-        pass
+def get_state_pos_and_vel_idx(task_name):
+    '''
+		Helper function that returns all the state position and velocity indices. Used to instantiate the koopman policy actor network.
+        
+        Parameters
+			task_name - the name of the relevant task.
 
-    def train_step():
+        Returns
+			state_pos_idx - an (ordered) list of position indices in order of corresponding variable in the action dimension
+            state_vel_idx - an (ordered) list of velocity indices in order of corresponding variable in the action dimension
+            
+    '''
+    task_name = task_name.split('-')[0] #remove the v[x] 
+    
+	#TODO: put in the hardcoded values
+    if task_name == 'Swimmer':
         pass
-
-    def train():
+    elif task_name == 'Hopper':
+        pass
+    elif task_name == 'HalfCheetah':
+        pass
+    elif task_name == 'Walker2D':
+        pass
+    elif task_name == 'Ant':
+        pass
+    elif task_name == 'Humanoid':
         pass
 
 
@@ -446,10 +460,11 @@ def run_ppo(params):
 	}
     
 
-	#TODO: set up vectorized environments 
+	#TODO: set up vectorized environments and a dummy single env for getting obs and ac dim
     env = None
 
     #TODO: parse and instantiate actor network 
+    #sub-TODO: find and define the state pos and state vel idx mappings used for mujoco tasks
     actor = None
     
 	#TODO: instantiate critic network (unless we need to experiment, I don't see why a 64-64 mlp critic won't work)
@@ -462,7 +477,7 @@ def run_ppo(params):
     total_timesteps = 0
     ppo.learn(total_timesteps)
     
-	#TODO: save koopman policy weights and any relevant figures
+	#TODO: save koopman policy weights, actor and critic networks as pytorch models, and any relevant figures
 
     return
 
