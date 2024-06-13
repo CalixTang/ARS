@@ -4,9 +4,6 @@ Contains policies used by PPO. We define a Koopman-based policy suitable for use
 import torch
 import torch.nn.functional as F
 import numpy as np
-
-import Observables
-# from Controller import PID
 	
 class KoopmanNetworkPolicy(torch.nn.Module):
 	def __init__(self, obs_dim, act_dim, observable_class, state_pos_idx, state_vel_idx, controller_P, controller_D):
@@ -56,6 +53,12 @@ class KoopmanNetworkPolicy(torch.nn.Module):
 
 		#3) Use PD control module to generate action - pass in curr obs and x_prime as setpoint
 		return self.PD_layer(obs, x_prime)
+	
+	def get_koopman_matrix(self):
+		"""
+			A getter func for the internal koopman matrix
+		"""
+		return self.koopman_layer.weight.clone().detach()
 	
 
 """
