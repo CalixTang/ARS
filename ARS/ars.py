@@ -372,6 +372,13 @@ class ARSLearner(object):
                     best_eval_policy_weights = w
                     if self.filter_type == 'MeanStdFilter':
                         best_filter_mean, best_filter_std = mu, std
+
+                # save latest policy weights and latest filter
+                np.save(os.path.join(self.logdir, 'latest_koopman_policy_weights.npy'), w)        
+
+                if self.filter_type == 'MeanStdFilter':
+                    ob_filter_obj = self.policy.get_observation_filter().as_dict()
+                    np.save(os.path.join(self.logdir, 'obs_filter.npy'), ob_filter_obj)
                 
                 #eval logging
                 # print(sorted(self.params.items()))
