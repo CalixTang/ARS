@@ -4,9 +4,8 @@ import numpy as np
 import gym
 from policies import *
 from shared_noise import *
-from mjrl.KODex_utils.Observables import *
-from mjrl.KODex_utils.Controller import *
-import mjrl.envs
+from Observables import *
+from Controller import *
 import numpy as np
 from tqdm import tqdm
 import imageio
@@ -52,7 +51,8 @@ def record_rollouts(task_id='HalfCheetah-v2',
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
             ob, reward, done, info = env.step(action)  
 
-            res = env.render(mode = 'rgb_array', width = vid_res[0], height = vid_res[1])
+            res = env.render(mode = 'rgb_array') 
+            # res = env.render(mode = 'rgb_array', width = vid_res[0], height = vid_res[1])
             vid_writer.append_data(res)
 
             episode_reward += (reward - shift)
