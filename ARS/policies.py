@@ -35,6 +35,11 @@ def get_state_pos_and_vel_idx(task):
     elif task == 'frankakitchen':
         # https://robotics.farama.org/envs/franka_kitchen/franka_kitchen/
         return np.r_[0 : 9], np.r_[9 : 18]
+    elif 'handmanipulate' in task:
+        # https://robotics.farama.org/envs/shadow_dexterous_hand/manipulate_egg/ - this applies to the rest of the handmanipulate tasks
+        return np.r_[0 : 5, 6 : 9, 10 : 13, 14 : 18, 19 : 24], np.r_[24 : 29, 30 : 33, 34 : 37, 38 : 42, 43 : 48]
+    
+        #TODO: add sub-branch here to allow for the touch-sensor enabled versions of these tasks
     else:
         # TODO - figure out a better default option
         return np.r_[:], np.r_[:]
@@ -116,8 +121,18 @@ class LinearPolicy(Policy):
         self.weights = np.zeros((self.ac_dim, self.ob_dim), dtype = np.float64)
 
     def act(self, ob):
-        ob = self.observation_filter(ob, update=self.update_filter)
-        return np.dot(self.weights, ob)
+        state = self.extract_state_from_ob(ob)
+        state = self.observation_filter(state, update=self.update_filter)
+        return np.dot(self.weights, state)
+    
+    def extract_state_from_ob(self, ob):
+        if isinstance(ob, dict):
+            # robosuite envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
+
+            #as of python 3.7, dicts maintain order in order of elem insertion, so this should be fine
+            return np.concatenate([v for k, v in ob.items()], axis = -1)
+        
+        return ob
 
     def get_weights_plus_stats(self):
         
@@ -154,16 +169,16 @@ class KoopmanPolicy(Policy):
         x = self.extract_state_from_ob(ob)
         
         #normalize if running ARS-V2
-        x = self.observation_filter(x, update=self.update_filter)
+        x_norm = self.observation_filter(x, update=self.update_filter)
 
         #extract lifted state from state - z = g(x)
-        z = self.extract_lifted_state(x)
+        z = self.extract_lifted_state(x_norm)
 
         #koopman update - z_{t + 1} = K @ z_t
         next_z = self.update_lifted_state(z)
 
         #get action from lifted state
-        action = self.get_act_from_lifted_state(next_z, ob)
+        action = self.get_act_from_lifted_state(next_z, x)
         
         return action
     
@@ -184,6 +199,12 @@ class KoopmanPolicy(Policy):
         return torque_action
     
     def extract_state_from_ob(self, ob):
+        if isinstance(ob, dict):
+            # robosuite envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
+
+            #as of python 3.7, dicts maintain order in order of elem insertion, so this should be fine
+            return np.concatenate([v for k, v in ob.items()], axis = -1)
+        
         return ob
     
     def extract_lifted_state(self, x):

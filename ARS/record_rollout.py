@@ -1,7 +1,8 @@
 import parser
 import os
 import numpy as np
-import gym
+# import gym
+import gymnasium as gym
 from policies import *
 from shared_noise import *
 from Observables import *

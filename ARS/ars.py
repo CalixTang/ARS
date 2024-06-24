@@ -26,7 +26,8 @@ from tqdm import tqdm
 # import mj_envs   # read the env files (task files)
 import time 
 import graph_results
-import gym
+# import gym
+import gymnasium as gym #for mujoco v4 and robosuite envs
 
 
 @ray.remote
@@ -43,8 +44,7 @@ class Worker(object):
                  delta_std=0.02):
 
         # initialize OpenAI environment for each worker
-        self.env = gym.make(task_id)
-        self.env.reset(seed = env_seed) #this seems to be different in v1 vs v4
+        self.env = instantiate_gym_env(task_id, policy_params)
 
         # each worker gets access to the shared noise table
         # with independent random streams for sampling
@@ -190,14 +190,14 @@ class ARSLearner(object):
         logz.configure_output_dir(logdir)
         logz.save_params(params)
 
-        env = None
+        # env = None
         
         #why do we need to make this every time?
-        env = gym.make(task_id)
+        # env = gym.make(task_id)
         
         self.timesteps = 0
-        self.action_size = env.action_space.shape[0]
-        self.ob_size = env.observation_space.shape[0]
+        # self.action_size = env.action_space.shape[0]
+        # self.ob_size = env.observation_space.shape[0]
         self.num_deltas = num_deltas
         self.deltas_used = deltas_used
         self.rollout_length = rollout_length
@@ -441,7 +441,33 @@ class ARSLearner(object):
 
         return training_rewards, eval_rewards
 
+def handle_extra_params(params, policy_params):
+    task_name = params['task_id'].split('-')[0]
+    if task_name == 'FrankaKitchen':
+        pass
+    elif 'Fetch' in task_name:
+        pass
+    elif 'HandManipulate' in task_name:
+        policy_params['rollout_length'] = params.get('rollout_length', 50)
+        policy_params['reward_type'] = params.get('reward_type', 'dense') #dense or sparse
 
+    return
+
+def instantiate_gym_env(task_id, policy_params):
+    task_name = task_id.split('-')[0]
+
+    if task_name == 'FrankaKitchen':
+        pass
+    elif 'Fetch' in task_name:
+        pass
+    elif 'HandManipulate' in task_name:
+        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'],  reward_type = policy_params['reward_type'])
+    else:
+        env = gym.make(task_id)
+        
+    env.reset(seed = policy_params['seed'])
+
+    return env
 
 def run_ars(params):
 
@@ -464,7 +490,12 @@ def run_ars(params):
 
     #surely there's a better way to get the ob and ac dims
     env = gym.make(params['task_id'])
-    ob_dim = env.observation_space.shape[0]
+
+    ob_dim = 0
+    if isinstance(env.observation_space, gym.spaces.dict.Dict):
+        ob_dim = sum([v.shape[0] for k, v in env.observation_space.items()])
+    else:
+        ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
     print(ob_dim, ac_dim)
     # ob_dim, ac_dim = params['robot_dim'] + params['obj_dim'], 0
@@ -486,8 +517,12 @@ def run_ars(params):
                    'filter_checkpoint_path': params.get('filter_checkpoint_path', None),
                    'lifting_function': params.get('lifting_function', 'locomotion'),
                    'obs_pos_idx': state_pos_idx,
-                   'obs_vel_idx': state_vel_idx
+                   'obs_vel_idx': state_vel_idx,
+                   'seed': params['seed']
                    }
+    
+    handle_extra_params(params, policy_params)
+
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
     ARS = ARSLearner(task_id=params['task_id'],
@@ -514,8 +549,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     #ARS arguments
-    #HalfCheetah-v2, 
-    parser.add_argument('--task_id', type=str, default='Hopper-v2')
+    
+    # Mujoco envs: Swimmer, Hopper, Walker2d, HalfCheetah, Ant, Humanoid (all -v4)
+    # FrankaKitchen: FrankaKitchen-v1
+    # Shadow Hand: HandReach, HandManipulateBlock, HandManipulateEgg, HandManipulatePen (all -v1). add _BooleanTouchSensor or _ContinuousTouchSensor before version for all but HandReach
+    parser.add_argument('--task_id', type=str, default='Hopper-v4')
     parser.add_argument('--n_iter', '-n', type=int, default=4000) #training steps
     parser.add_argument('--n_directions', '-nd', type=int, default=128) #directions explored - results in 2*d actual policies
     parser.add_argument('--deltas_used', '-du', type=int, default=64) #directions kept for gradient update
@@ -528,7 +566,7 @@ if __name__ == '__main__':
     # for Humanoid-v1 used shift = 5
     parser.add_argument('--shift', type=float, default=1) #TODO: tweak as necessary
     parser.add_argument('--seed', type=int, default=237)
-    parser.add_argument('--policy_type', type=str, default='hopper')
+    parser.add_argument('--policy_type', type=str, default='truncatedkoopman')
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
