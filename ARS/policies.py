@@ -12,6 +12,33 @@ from Observables import *
 from Controller import *
 import scipy.linalg as linalg 
 
+def get_state_pos_and_vel_idx(task):
+    task = task.lower().split('-')[0]
+    if task == 'swimmer':
+        # https://www.gymlibrary.dev/environments/mujoco/swimmer/
+        return np.r_[1 : 3], np.r_[6 : 8]
+    elif task == 'hopper':
+        # https://www.gymlibrary.dev/environments/mujoco/hopper/
+        return np.r_[2 : 5], np.r_[8 : 11]
+    elif task == 'halfcheetah':
+        # https://www.gymlibrary.dev/environments/mujoco/half_cheetah/
+        return np.r_[2 : 8], np.r_[11 : 17]
+    elif task == 'walker2d':
+        # https://www.gymlibrary.dev/environments/mujoco/walker2d/
+        return np.r_[2 : 8], np.r_[11 : 17]
+    elif task == 'ant':
+        # https://www.gymlibrary.dev/environments/mujoco/ant/
+        return np.r_[5 : 13], np.r_[19 : 27]
+    elif task == 'humanoid':
+        # https://www.gymlibrary.dev/environments/mujoco/humanoid/
+        return np.r_[6, 5, 7 : 22], np.r_[29, 28, 30 : 45]
+    elif task == 'frankakitchen':
+        # https://robotics.farama.org/envs/franka_kitchen/franka_kitchen/
+        return np.r_[0 : 9], np.r_[9 : 18]
+    else:
+        # TODO - figure out a better default option
+        return np.r_[:], np.r_[:]
+
 def get_observable(observable_name):
     """
     Returns the relevant Observable (lifting function) given a name. Used to pass in names as policy parameters rather than objects.

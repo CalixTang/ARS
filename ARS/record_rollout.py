@@ -25,8 +25,9 @@ def record_rollouts(task_id='HalfCheetah-v2',
         
     env = None 
 
-    env = gym.make(task_id)
-    env.seed(seed)
+    env = gym.make(task_id, render_mode = 'rgb_array')
+    # env.seed(seed)
+    env.reset(seed = seed) #for v4 envs
 
     save_path = os.path.join(logdir, f"{task_id}_eval_{num_rollouts}_rollouts.mp4")
     vid_writer = imageio.get_writer(save_path, mode = 'I', fps = 60)
@@ -40,7 +41,7 @@ def record_rollouts(task_id='HalfCheetah-v2',
 
     for i in tqdm(range(num_rollouts)):
 
-        ob = env.reset()
+        ob, _ = env.reset() #for v4 envs
         episode_reward = 0
         for t in range(rollout_length):
             #generate torque action
@@ -49,14 +50,15 @@ def record_rollouts(task_id='HalfCheetah-v2',
 
             #TODO: verify if we need to be using koopman op on the next_o or the actually observed env state
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            ob, reward, done, info = env.step(action)  
+            ob, reward, terminated, done, info = env.step(action)   #for v4 env
 
-            res = env.render(mode = 'rgb_array') 
+            # res = env.render(mode = 'rgb_array')
+            res = env.render() 
             # res = env.render(mode = 'rgb_array', width = vid_res[0], height = vid_res[1])
             vid_writer.append_data(res)
 
             episode_reward += (reward - shift)
-            if done:
+            if terminated or done:
                 break
         
         ep_rewards[i] = episode_reward
@@ -86,6 +88,8 @@ if __name__ == '__main__':
     PID_D = 0.001  
     Simple_PID = PID(PID_P, 0.0, PID_D)
 
+    state_pos_idx, state_vel_idx = get_state_pos_and_vel_idx(params['task_id'])
+
 
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
     policy_params={'type':params['policy_type'],
@@ -97,7 +101,10 @@ if __name__ == '__main__':
                 #    'object': params['object'],
                 # 'num_modes': params['num_modes'],#only for EigenRelocate
                    'PID_controller': Simple_PID,
-                   } 
+                   'lifting_function': params.get('lifting_function', 'locomotion'),
+                   'obs_pos_idx': state_pos_idx,
+                   'obs_vel_idx': state_vel_idx
+                   }
     
     policy = get_policy(policy_params['type'], policy_params)
     
