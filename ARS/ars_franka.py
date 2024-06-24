@@ -44,7 +44,7 @@ class Worker(object):
 
         # initialize OpenAI environment for each worker
         self.env = gym.make(task_id)
-        self.env.reset(seed = env_seed) #this seems to be different in v1 vs v4
+        self.env.seed(env_seed)
 
         # each worker gets access to the shared noise table
         # with independent random streams for sampling
@@ -91,7 +91,7 @@ class Worker(object):
         total_reward = 0.
         steps = 0
 
-        ob, _ = self.env.reset() #in v4 envs, there's an extra second return
+        ob = self.env.reset()
         for i in range(rollout_length):
             #generate action
             action = self.policy.act(ob)
@@ -99,7 +99,7 @@ class Worker(object):
             reward = 0
 
             #(strict koopman trajectory that we follow vs doing a simple "koopman-ish" update on observed state as is implemented here)
-            ob, reward, done, terminateds, info = self.env.step(action) #extra 5th return in v4 gym mujoco envs...
+            ob, reward, done, info = self.env.step(action)  
             
             # ob, reward, done, _ = self.env.step(action)
             steps += 1
@@ -441,33 +441,6 @@ class ARSLearner(object):
 
         return training_rewards, eval_rewards
 
-def get_state_pos_and_vel_idx(task):
-    task = task.lower().split('-')[0]
-    if task == 'swimmer':
-        # https://www.gymlibrary.dev/environments/mujoco/swimmer/
-        return np.r_[1 : 3], np.r_[6 : 8]
-    elif task == 'hopper':
-        # https://www.gymlibrary.dev/environments/mujoco/hopper/
-        return np.r_[2 : 5], np.r_[8 : 11]
-    elif task == 'halfcheetah':
-        # https://www.gymlibrary.dev/environments/mujoco/half_cheetah/
-        return np.r_[2 : 8], np.r_[11 : 17]
-    elif task == 'walker2d':
-        # https://www.gymlibrary.dev/environments/mujoco/walker2d/
-        return np.r_[2 : 8], np.r_[11 : 17]
-    elif task == 'ant':
-        # https://www.gymlibrary.dev/environments/mujoco/ant/
-        return np.r_[5 : 13], np.r_[19 : 27]
-    elif task == 'humanoid':
-        # https://www.gymlibrary.dev/environments/mujoco/humanoid/
-        return np.r_[6, 5, 7 : 22], np.r_[29, 28, 30 : 45]
-    elif task == 'frankakitchen':
-        # https://robotics.farama.org/envs/franka_kitchen/franka_kitchen/
-        return np.r_[0 : 9], np.r_[9 : 18]
-    else:
-        # TODO - figure out a better default option
-        return np.r_[:], np.r_[:]
-
 def run_ars(params):
 
     dir_path = params['dir_path']
@@ -498,20 +471,18 @@ def run_ars(params):
     PID_D = 0.001 
     pd_controller = PID(PID_P, 0.0, PID_D)
 
-    state_pos_idx, state_vel_idx = get_state_pos_and_vel_idx(params['task_id'])
-
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
     policy_params={'type':params['policy_type'],
                    'ob_filter':params['filter'],
                    'ob_dim':ob_dim,
                    'ac_dim':ac_dim, 
+                #    'robot_dim': params['robot_dim'],
+                #    'obj_dim': params['obj_dim'],
+                #    'object': params['object'],
                    'num_modes': params['num_modes'], # only for EigenRelocate policy
                    'PID_controller': pd_controller,
                    'policy_checkpoint_path': params.get('policy_checkpoint_path', None),
-                   'filter_checkpoint_path': params.get('filter_checkpoint_path', None),
-                   'lifting_function': params.get('lifting_function', 'locomotion'),
-                   'obs_pos_idx': state_pos_idx,
-                   'obs_vel_idx': state_vel_idx
+                   'filter_checkpoint_path': params.get('filter_checkpoint_path', None)
                    }
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)
@@ -557,9 +528,11 @@ if __name__ == '__main__':
     parser.add_argument('--dir_path', type=str, default='data')
     # for ARS V1 use filter = 'NoFilter', V2 = 'MeanStdFilter'
     parser.add_argument('--filter', type=str, default='NoFilter') 
-    
-    #Corresponds to the type of observable to use. For now, either identity, locomotion, or manipulation
-    parser.add_argument('--lifting_function', type=str, default = 'locomotion')
+
+    #relocate-specific arguments 
+    # parser.add_argument('--object', type=str, default = 'ball')
+    # parser.add_argument('--robot_dim', type=int, default = 30)
+    # parser.add_argument('--obj_dim', type=int, default = 12)
 
     #eigenkoopman arg
     parser.add_argument('--num_modes', type=int, default = 0) #EigenRelocate only, for relocate task in [1, 759]
