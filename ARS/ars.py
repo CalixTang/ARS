@@ -445,10 +445,11 @@ def handle_extra_params(params, policy_params):
     task_name = params['task_id'].split('-')[0]
     if task_name == 'FrankaKitchen':
         pass
-    elif 'Fetch' in task_name:
-        pass
     elif 'HandManipulate' in task_name:
         policy_params['rollout_length'] = params.get('rollout_length', 50)
+        policy_params['reward_type'] = params.get('reward_type', 'dense') #dense or sparse
+    elif 'Fetch' in task_name:
+        policy_params['rollout_length'] = params.get('rollout_length', 100)
         policy_params['reward_type'] = params.get('reward_type', 'dense') #dense or sparse
 
     return
@@ -459,9 +460,9 @@ def instantiate_gym_env(task_id, policy_params):
     if task_name == 'FrankaKitchen':
         pass
     elif 'Fetch' in task_name:
-        pass
+        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'], reward_type = policy_params['reward_type'])
     elif 'HandManipulate' in task_name:
-        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'],  reward_type = policy_params['reward_type'])
+        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'], reward_type = policy_params['reward_type'])
     else:
         env = gym.make(task_id)
         

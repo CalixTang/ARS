@@ -38,11 +38,16 @@ def get_state_pos_and_vel_idx(task):
     elif 'handmanipulate' in task:
         # https://robotics.farama.org/envs/shadow_dexterous_hand/manipulate_egg/ - this applies to the rest of the handmanipulate tasks
         return np.r_[0 : 5, 6 : 9, 10 : 13, 14 : 18, 19 : 24], np.r_[24 : 29, 30 : 33, 34 : 37, 38 : 42, 43 : 48]
-    
-        #TODO: add sub-branch here to allow for the touch-sensor enabled versions of these tasks
+    elif task == 'fetchreach':
+        # https://robotics.farama.org/envs/fetch/reach/
+        return np.r_[0 : 4], np.r_[5 : 9]        
+    elif 'fetch' in task:
+        # https://robotics.farama.org/envs/fetch/
+        return np.r_[0 : 3, 9], np.r_[20 : 24]
     else:
         # TODO - figure out a better default option
         return np.r_[:], np.r_[:]
+    #TODO: add sub-branches to allow for the touch-sensor enabled versions of these tasks
 
 def get_observable(observable_name):
     """
