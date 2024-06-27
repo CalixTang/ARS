@@ -85,6 +85,7 @@ def get_policy(policy_name, policy_params):
         policy.observation_filter = policy.observation_filter.from_dict(filter) 
     
     print(policy.get_weights().shape)
+    print(policy_params)
     return policy
 
 class Policy(object):
@@ -132,10 +133,8 @@ class LinearPolicy(Policy):
     
     def extract_state_from_ob(self, ob):
         if isinstance(ob, dict):
-            # robosuite envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
-
-            #as of python 3.7, dicts maintain order in order of elem insertion, so this should be fine
-            return np.concatenate([v for k, v in ob.items()], axis = -1)
+            # gymnasium robotics envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
+            return np.concatenate([ob['observation'], ob['achieved_goal'], ob['desired_goal']], axis = -1)
         
         return ob
 
@@ -205,10 +204,8 @@ class KoopmanPolicy(Policy):
     
     def extract_state_from_ob(self, ob):
         if isinstance(ob, dict):
-            # robosuite envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
-
-            #as of python 3.7, dicts maintain order in order of elem insertion, so this should be fine
-            return np.concatenate([v for k, v in ob.items()], axis = -1)
+            # gymnasium robotics envs typically return observations as a dict with robot obs, and then state obs that include object information. we need object info, so we will concatenate everything together to get the actual state
+            return np.concatenate([ob['observation'], ob['achieved_goal'], ob['desired_goal']], axis = -1)
         
         return ob
     

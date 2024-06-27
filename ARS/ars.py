@@ -44,7 +44,7 @@ class Worker(object):
                  delta_std=0.02):
 
         # initialize OpenAI environment for each worker
-        self.env = instantiate_gym_env(task_id, policy_params)
+        self.env = utils.instantiate_gym_env(task_id, policy_params)
 
         # each worker gets access to the shared noise table
         # with independent random streams for sampling
@@ -441,34 +441,6 @@ class ARSLearner(object):
 
         return training_rewards, eval_rewards
 
-def handle_extra_params(params, policy_params):
-    task_name = params['task_id'].split('-')[0]
-    if task_name == 'FrankaKitchen':
-        pass
-    elif 'HandManipulate' in task_name:
-        policy_params['rollout_length'] = params.get('rollout_length', 50)
-        policy_params['reward_type'] = params.get('reward_type', 'dense') #dense or sparse
-    elif 'Fetch' in task_name:
-        policy_params['rollout_length'] = params.get('rollout_length', 100)
-        policy_params['reward_type'] = params.get('reward_type', 'dense') #dense or sparse
-
-    return
-
-def instantiate_gym_env(task_id, policy_params):
-    task_name = task_id.split('-')[0]
-
-    if task_name == 'FrankaKitchen':
-        pass
-    elif 'Fetch' in task_name:
-        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'], reward_type = policy_params['reward_type'])
-    elif 'HandManipulate' in task_name:
-        env = gym.make(task_id, max_episode_steps = policy_params['rollout_length'], reward_type = policy_params['reward_type'])
-    else:
-        env = gym.make(task_id)
-        
-    env.reset(seed = policy_params['seed'])
-
-    return env
 
 def run_ars(params):
 
@@ -522,7 +494,7 @@ def run_ars(params):
                    'seed': params['seed']
                    }
     
-    handle_extra_params(params, policy_params)
+    utils.handle_extra_params(params, policy_params)
 
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)

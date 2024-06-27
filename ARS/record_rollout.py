@@ -10,6 +10,7 @@ from Controller import *
 import numpy as np
 from tqdm import tqdm
 import imageio
+import utils
 import os
 from filter import Filter
 
@@ -20,15 +21,9 @@ def record_rollouts(task_id='HalfCheetah-v2',
                 logdir=None,
                 num_rollouts=50,
                 rollout_length = 500,
-                shift = 0.,
-                vid_res = [720, 640],
-                seed=123):
+                shift = 0.):
         
-    env = None 
-
-    env = gym.make(task_id, render_mode = 'rgb_array')
-    # env.seed(seed)
-    env.reset(seed = seed) #for v4 envs
+    env = utils.instantiate_gym_env(task_id, policy_params)
 
     save_path = os.path.join(logdir, f"{task_id}_eval_{num_rollouts}_rollouts.mp4")
     vid_writer = imageio.get_writer(save_path, mode = 'I', fps = 60)
@@ -76,6 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--policy_weight_file', type=str, default = 'best_koopman_policy_weights.npy') #this should be contained in logdir
     parser.add_argument('--filter_file', type=str, default = 'best_filter.npy') #this should be contained in logdir
     parser.add_argument('--num_rollouts', type = int, default = 20)
+    parser.add_argument('--vid_res', default = [720, 640])
 
     args = parser.parse_args()
 
@@ -84,7 +80,12 @@ if __name__ == '__main__':
 
     env = gym.make(params['task_id'])
 
-    ob_dim, ac_dim = env.observation_space.shape[0], env.action_space.shape[0]
+    ob_dim = 0
+    if isinstance(env.observation_space, gym.spaces.dict.Dict):
+        ob_dim = sum([v.shape[0] for k, v in env.observation_space.items()])
+    else:
+        ob_dim = env.observation_space.shape[0]
+    ac_dim = env.action_space.shape[0]
     PID_P = 0.1
     PID_D = 0.001  
     Simple_PID = PID(PID_P, 0.0, PID_D)
@@ -93,10 +94,11 @@ if __name__ == '__main__':
 
 
     # set policy parameters. Possible filters: 'MeanStdFilter' for v2, 'NoFilter' for v1.
-    policy_params={'type':params['policy_type'],
-                   'ob_filter':params['filter'],
+    policy_params={'type':params.get('policy_type', 'truncatedkoopman'),
+                   'ob_filter': params.get('filter', 'NoFilter'),
                    'ob_dim':ob_dim,
                    'ac_dim':ac_dim, 
+                   'rollout_length' : params.get('rollout_length', 50),
                 #    'robot_dim': params['robot_dim'],
                 #    'obj_dim': params['obj_dim'],
                 #    'object': params['object'],
@@ -104,8 +106,13 @@ if __name__ == '__main__':
                    'PID_controller': Simple_PID,
                    'lifting_function': params.get('lifting_function', 'locomotion'),
                    'obs_pos_idx': state_pos_idx,
-                   'obs_vel_idx': state_vel_idx
+                   'obs_vel_idx': state_vel_idx,
+                   'render_mode': 'rgb_array', #this is specific to recording rollouts
+                   'seed': params.get('seed', 237),
+                   'vid_res': params.get('vid_res', [720, 640]) #default video resolution [width, height]
                    }
+    
+    utils.handle_extra_params(params, policy_params)
     
     policy = get_policy(policy_params['type'], policy_params)
     
@@ -119,12 +126,12 @@ if __name__ == '__main__':
         # print(x)
     
 
-    record_rollouts(task_id=params['task_id'],
+    ep_rewards = record_rollouts(task_id=params['task_id'],
                 policy_params = policy_params,
                 policy = policy,
                 logdir = args.logdir,
                 num_rollouts=args.num_rollouts,
-                rollout_length = params['rollout_length'],
-                shift = params['shift'],
-                vid_res = [720, 640],
-                seed=params['seed'])
+                rollout_length = params.get('rollout_length', 1000),
+                shift = params['shift'],)
+    
+    print("Episode Rewards: ", ep_rewards)
