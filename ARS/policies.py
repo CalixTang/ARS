@@ -71,6 +71,8 @@ def get_policy(policy_name, policy_params):
         policy = KoopmanPolicy(policy_params) 
     elif policy_name == 'truncatedkoopman':
         policy = TruncatedKoopmanPolicy(policy_params)
+    elif policy_name == 'minkoopman':
+        policy = MinKoopmanPolicy(policy_params)
     elif policy_name == 'relocate':
         policy = RelocatePolicy(policy_params)
     else:
@@ -246,6 +248,41 @@ class TruncatedKoopmanPolicy(KoopmanPolicy):
         #get the next position to use as setpoint for controller
         next_pos = next_z[self.pos_idx]
         self.pid_controller.set_goal(next_pos)
+
+        #extract current position and velocity too
+        curr_pos, curr_vel = env_state[self.pos_idx], env_state[self.vel_idx]
+
+        #assume that pid will convert angle and angular velocity to torque
+        torque_action = self.pid_controller(curr_pos, curr_vel)
+        # print(torque_action)
+        return torque_action
+
+class MinKoopmanPolicy(KoopmanPolicy):
+    """
+        Implements a minimal representation of the Koopman matrix K. 
+        Instead of keeping a dxd matrix for weights, keep an axd matrix for weights, where a is the action size (but the output is the relevant next states (positions)). 
+        This is similar to a Linear Policy which maps state to action, except we are going from lifted state to action size to (through PID) action.
+    """
+    def __init__(self, policy_params):
+        super().__init__(policy_params)
+
+        self.koopman_obser = get_observable(policy_params['lifting_function'])(policy_params['ob_dim'])
+        self.weight_dim = self.koopman_obser.compute_observables_from_self()
+
+        self.state_dim = policy_params.get('state_dim', policy_params['ob_dim'])
+
+        #weights will be the minimized koopman matrix
+        self.weights = np.eye(self.ac_dim, self.weight_dim, dtype = np.float64)
+        self.pid_controller = policy_params['PID_controller']
+
+        self.pos_idx = policy_params['obs_pos_idx']
+        self.vel_idx = policy_params['obs_vel_idx']
+
+    def get_act_from_lifted_state(self, next_z, env_state):
+        #for this class, next_z is the next x
+
+        #next_z is in the size of the action dimension. we can use it directly for minkoopman
+        self.pid_controller.set_goal(next_z)
 
         #extract current position and velocity too
         curr_pos, curr_vel = env_state[self.pos_idx], env_state[self.vel_idx]

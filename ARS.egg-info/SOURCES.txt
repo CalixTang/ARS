@@ -1,7 +1,0 @@
-LICENSE
-README.md
-setup.py
-ARS.egg-info/PKG-INFO
-ARS.egg-info/SOURCES.txt
-ARS.egg-info/dependency_links.txt
-ARS.egg-info/top_level.txt
