@@ -273,8 +273,8 @@ class MinKoopmanPolicy(KoopmanPolicy):
 
         #weights will be the minimized koopman matrix - we have to initialize these using state pos idx
         self.weights = np.zeros((self.ac_dim, self.weight_dim), dtype = np.float64)
-        for i in range(self.state_pos_idx.shape[0]):
-            self.weights[i, self.state_pos_idx[i]] = 1
+        for i in range(self.pos_idx.shape[0]):
+            self.weights[i, self.pos_idx[i]] = 1
 
         self.pid_controller = policy_params['PID_controller']
 
