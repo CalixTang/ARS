@@ -49,17 +49,6 @@ def get_state_pos_and_vel_idx(task):
         return np.r_[:], np.r_[:]
     #TODO: add sub-branches to allow for the touch-sensor enabled versions of these tasks
 
-def get_observable(observable_name):
-    """
-    Returns the relevant Observable (lifting function) given a name. Used to pass in names as policy parameters rather than objects.
-    """
-    if 'locomotion' in observable_name.lower():
-        return LocomotionObservable
-    elif 'manipulation' in observable_name.lower():
-        return ManipulationObservable
-    else:
-        return IdentityObservable
-
 def get_policy(policy_name, policy_params):
     policy_name = policy_name.lower()
     print(policy_name)

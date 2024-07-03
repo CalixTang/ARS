@@ -1,11 +1,27 @@
-"Clone of KODex Observables.py (relevant portions) to avoid needing to import mjrl and mj_envs"
+# Clone of KODex Observables.py (relevant portions) to avoid needing to import mjrl and mj_envs
 
-"""
-Base class for an observable. Should lift a state vector to a lifted state vector.
-"""
+
 import numpy as np
 
+def get_observable(observable_name):
+    """
+    Returns the relevant Observable (lifting function) given a name. Used to pass in names as policy parameters rather than objects.
+    """
+    observable_name = observable_name.lower()
+    if observable_name == 'locomotion':
+        return LocomotionObservable
+    elif observable_name == 'manipulation':
+        return ManipulationObservable
+    elif observable_name == 'largemanipulation':
+        return LargeManipulationObservable
+    else:
+        return IdentityObservable
+
+
 class Observable(object):
+    """
+        Base class for an observable. Should lift a state vector to a lifted state vector.
+    """
     def __init__(self, num_envStates):
         self.num_states = num_envStates
 
