@@ -28,6 +28,7 @@ import time
 import graph_results
 # import gym
 import gymnasium as gym #for mujoco v4 and robosuite envs
+from koopmanutils.env_utils import handle_extra_params, get_state_pos_and_vel_idx, instantiate_gym_env
 
 
 @ray.remote
@@ -44,7 +45,7 @@ class Worker(object):
                  delta_std=0.02):
 
         # initialize OpenAI environment for each worker
-        self.env = utils.instantiate_gym_env(task_id, policy_params)
+        self.env = instantiate_gym_env(task_id, policy_params)
 
         # each worker gets access to the shared noise table
         # with independent random streams for sampling
@@ -494,7 +495,7 @@ def run_ars(params):
                    'seed': params['seed']
                    }
     
-    utils.handle_extra_params(params, policy_params)
+    handle_extra_params(params, policy_params)
 
     print(f"ARS parameters: {params}")
     print(f"Policy parameters: {policy_params}", flush = True)

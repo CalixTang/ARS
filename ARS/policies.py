@@ -12,43 +12,6 @@ from Observables import *
 from Controller import *
 import scipy.linalg as linalg 
 
-def get_state_pos_and_vel_idx(task):
-    task = task.lower().split('-')[0]
-    if task == 'swimmer':
-        # https://www.gymlibrary.dev/environments/mujoco/swimmer/
-        return np.r_[1 : 3], np.r_[6 : 8]
-    elif task == 'hopper':
-        # https://www.gymlibrary.dev/environments/mujoco/hopper/
-        return np.r_[2 : 5], np.r_[8 : 11]
-    elif task == 'halfcheetah':
-        # https://www.gymlibrary.dev/environments/mujoco/half_cheetah/
-        return np.r_[2 : 8], np.r_[11 : 17]
-    elif task == 'walker2d':
-        # https://www.gymlibrary.dev/environments/mujoco/walker2d/
-        return np.r_[2 : 8], np.r_[11 : 17]
-    elif task == 'ant':
-        # https://www.gymlibrary.dev/environments/mujoco/ant/
-        return np.r_[5 : 13], np.r_[19 : 27]
-    elif task == 'humanoid':
-        # https://www.gymlibrary.dev/environments/mujoco/humanoid/
-        return np.r_[6, 5, 7 : 22], np.r_[29, 28, 30 : 45]
-    elif task == 'frankakitchen':
-        # https://robotics.farama.org/envs/franka_kitchen/franka_kitchen/
-        return np.r_[0 : 9], np.r_[9 : 18]
-    elif 'handmanipulate' in task:
-        # https://robotics.farama.org/envs/shadow_dexterous_hand/manipulate_egg/ - this applies to the rest of the handmanipulate tasks
-        return np.r_[0 : 5, 6 : 9, 10 : 13, 14 : 18, 19 : 24], np.r_[24 : 29, 30 : 33, 34 : 37, 38 : 42, 43 : 48]
-    elif task == 'fetchreach':
-        # https://robotics.farama.org/envs/fetch/reach/
-        return np.r_[0 : 4], np.r_[5 : 9]        
-    elif 'fetch' in task:
-        # https://robotics.farama.org/envs/fetch/
-        return np.r_[0 : 3, 9], np.r_[20 : 24]
-    else:
-        # TODO - figure out a better default option
-        return np.r_[:], np.r_[:]
-    #TODO: add sub-branches to allow for the touch-sensor enabled versions of these tasks
-
 def get_policy(policy_name, policy_params):
     policy_name = policy_name.lower()
     print(policy_name)
