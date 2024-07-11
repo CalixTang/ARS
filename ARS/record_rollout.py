@@ -13,6 +13,7 @@ import imageio
 import utils
 import os
 from filter import Filter
+from koopmanutils.env_utils import handle_extra_params, get_state_pos_and_vel_idx, instantiate_gym_env
 
 #modified version of run_policy.py and record_relocate from mjrl.utils.gym_env
 def record_rollouts(task_id='HalfCheetah-v2',
@@ -23,7 +24,7 @@ def record_rollouts(task_id='HalfCheetah-v2',
                 rollout_length = 500,
                 shift = 0.):
         
-    env = utils.instantiate_gym_env(task_id, policy_params)
+    env = instantiate_gym_env(task_id, policy_params)
 
     save_path = os.path.join(logdir, f"{task_id}_eval_{num_rollouts}_rollouts.mp4")
     vid_writer = imageio.get_writer(save_path, mode = 'I', fps = 60)
@@ -112,7 +113,7 @@ if __name__ == '__main__':
                    'vid_res': params.get('vid_res', [720, 640]) #default video resolution [width, height]
                    }
     
-    utils.handle_extra_params(params, policy_params)
+    handle_extra_params(params, policy_params)
     
     policy = get_policy(policy_params['type'], policy_params)
     
