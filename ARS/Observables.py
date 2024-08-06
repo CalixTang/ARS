@@ -219,16 +219,18 @@ class LargeManipulationObservable(Observable):
         index += self.num_states
 
         #x[i] x[j] w/o repetition
-        obs[index : index + (self.num_states * (self.num_states - 1)) // 2] = np.outer(envState, envState)[np.triu_indices(self.num_states - 1, k=1)]
-        index += (self.num_states * (self.num_states - 1)) // 2  
+        obs[index : index + ((self.num_states - 1) * (self.num_states - 2)) // 2] = np.outer(envState, envState)[np.triu_indices(self.num_states - 1, k=1)]
+        index += ((self.num_states - 1) * (self.num_states - 2)) // 2 
 
         # x[i]^2 x[j] w/ repetition - I removed the x[i]^3 here b/c this block includes x[i]^3
         obs[index : index + (self.num_states ** 2)] = np.outer(envState ** 2, envState).flatten()
         index += self.num_states ** 2
 
+        return obs
+
 
     def compute_observable(num_states):
-        return 4 * num_states + (num_states * (num_states - 1)) // 2 + num_states ** 2
+        return 4 * num_states + ((num_states - 1) * (num_states - 2)) // 2 + num_states ** 2
     
     def compute_observables_from_self(self):
         return LargeManipulationObservable.compute_observable(self.num_states)
